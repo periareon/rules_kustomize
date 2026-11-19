@@ -1,6 +1,12 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("@bazel_skylib//rules:native_binary.bzl", "native_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
+# buildifier: disable=bzl-visibility
+load("//kustomize/private:versions.bzl", "DEFAULT_VERSION")
 load("kustomize_diff_test.bzl", "kustomize_diff_test")
+
+# Must match the `kustomize_dev.toolchain(name = "kustomize_pinned_toolchains", ...)` tag in MODULE.bazel.
+PINNED_VERSION = "5.7.1"
 
 kustomize_diff_test(
     name = "simple",
@@ -61,13 +67,87 @@ diff_test(
     file2 = "testdata/simple/kustomization.yaml",
 )
 
-[
-    native_test(
-        name = "{}_tool_test".format(tool),
-        src = "//tools/{}".format(tool),
-        args = ["version"],
-    )
-    for tool in [
-        "kustomize",
-    ]
-]
+# Toolchain resolution and the `KUSTOMIZE` make variable.
+genrule(
+    name = "toolchain_version",
+    outs = ["toolchain_version.txt"],
+    cmd = "$(KUSTOMIZE) version > $@",
+    toolchains = ["//kustomize:current_toolchain"],
+)
+
+write_file(
+    name = "expected_toolchain_version",
+    out = "expected_toolchain_version.txt",
+    content = [
+        "v" + DEFAULT_VERSION,
+        "",
+    ],
+)
+
+diff_test(
+    name = "toolchain_version_test",
+    size = "small",
+    file1 = ":toolchain_version",
+    file2 = ":expected_toolchain_version",
+)
+
+# The host repository created by the default `kustomize.host_tools()` tag.
+genrule(
+    name = "host_version",
+    outs = ["host_version.txt"],
+    cmd = "$(execpath @kustomize//:kustomize) version > $@",
+    tools = ["@kustomize"],
+)
+
+diff_test(
+    name = "host_version_test",
+    size = "small",
+    file1 = ":host_version",
+    file2 = ":expected_toolchain_version",
+)
+
+# A version without checksums in `kustomize/private/versions.bzl`, resolved by
+# the extension at fetch time (and persisted as lockfile facts on Bazel 8.5+).
+genrule(
+    name = "pinned_version",
+    outs = ["pinned_version.txt"],
+    cmd = "$(execpath @kustomize_pinned//:kustomize) version > $@",
+    tools = ["@kustomize_pinned//:kustomize"],
+)
+
+write_file(
+    name = "expected_pinned_version",
+    out = "expected_pinned_version.txt",
+    content = [
+        "v" + PINNED_VERSION,
+        "",
+    ],
+)
+
+diff_test(
+    name = "pinned_version_test",
+    size = "small",
+    file1 = ":pinned_version",
+    file2 = ":expected_pinned_version",
+)
+
+# The launcher in front of the host binary honors `BUILD_WORKING_DIRECTORY`.
+# The sandbox presents the inputs as symbolic links pointing outside the
+# kustomization root, so the default load restrictor must be relaxed here.
+genrule(
+    name = "launcher_build",
+    srcs = [
+        "testdata/simple/config-bindings",
+        "testdata/simple/kustomization.yaml",
+    ],
+    outs = ["launcher_build.yaml"],
+    cmd = "BUILD_WORKING_DIRECTORY=\"$$(dirname $(execpath testdata/simple/kustomization.yaml))\" $(execpath @kustomize//:kustomize) build --load-restrictor LoadRestrictionsNone . > $@",
+    tools = ["@kustomize"],
+)
+
+diff_test(
+    name = "launcher_build_test",
+    size = "small",
+    file1 = ":launcher_build",
+    file2 = "testdata/simple/golden.yaml",
+)

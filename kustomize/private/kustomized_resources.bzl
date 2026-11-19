@@ -5,7 +5,7 @@ load(":providers.bzl", "KustomizationInfo")
 
 visibility("//kustomize/...")
 
-_KUSTOMIZE_TOOLCHAIN_TYPE = Label("//tools/kustomize:toolchain_type")
+_KUSTOMIZE_TOOLCHAIN_TYPE = Label("//kustomize:toolchain_type")
 _HELM_TOOLCHAIN_TYPE = Label("@rules_helm//helm:toolchain_type")
 
 # Both tools must resolve for the same execution platform, as kustomize
@@ -21,7 +21,7 @@ def _manifest_entry(file):
 def _kustomized_resources_impl(ctx):
     info = ctx.attr.kustomization[KustomizationInfo]
     toolchains = ctx.exec_groups[_EXEC_GROUP].toolchains
-    kustomize = toolchains[_KUSTOMIZE_TOOLCHAIN_TYPE].kustomizeinfo.tool
+    kustomize = toolchains[_KUSTOMIZE_TOOLCHAIN_TYPE].kustomize
     result = ctx.outputs.result or ctx.actions.declare_file(ctx.label.name + ".yaml")
     tools = [kustomize]
 

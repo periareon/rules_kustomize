@@ -41,7 +41,7 @@ These Bazel rules allow you to define `kustomizations <kustomization term_>`__ w
 
 :tool:`kustomize` operates on the Kubernetes Resource Model (KRM), and most often comes into play just ahead of Kubernetes API clients like :tool:`kubectl`, sending the YAML document stream to the Kubernetes API to apply the resources_ to the cluster. These rules do no include any such interaction with the Kubernetes API. Instead, they focus solely on emitting the resources defined by the :term:`kustomization`.
 
-When a :term:`kustomization` inflates Helm charts, the rules supply the :tool:`helm` tool provided by the `rules_helm <https://github.com/periareon/rules_helm>`__ Bazel module.
+The rules download :tool:`kustomize` through a module extension, described under `Integrating Into Your Project`_. When a :term:`kustomization` inflates Helm charts, the rules supply the :tool:`helm` tool provided by the `rules_helm <https://github.com/periareon/rules_helm>`__ Bazel module.
 
 Simple Example
 --------------
@@ -128,54 +128,54 @@ In order to use these rules in your Bazel project, you must instruct Bazel to do
 
     bazel_dep(name = "rules_kustomize", version = "0.6.0")
 
-This declaration registers a particular version of the :tool:`kustomize` tool. By default, it registers `the latest version known to the rules <Tool Versions_>`_. You can specify a preferred version by supplying the known version slug (e.g. "v5.8.0") as an argument to the module extension's :field:`download` tag.
+That declaration alone registers :tool:`kustomize` toolchains for the default version, as :file:`rules_kustomize` evaluates its own :field:`kustomize` module extension and registers the resulting hub. The :tool:`helm` tool, used only by :term:`kustomizations` that inflate Helm charts, comes from the `rules_helm <https://github.com/periareon/rules_helm>`__ Bazel module, which likewise registers its toolchains automatically.
+
+To choose a different version, declare the hub yourself with the extension's :field:`toolchain` tag. It creates a repository (named :value:`kustomize_toolchains` by default) holding a toolchain for every platform :tool:`kustomize` is released on, and registering :value:`@kustomize_toolchains//:all` lets Bazel pick the one matching each execution platform:
 
 .. code:: bazel
 
-    bazel_dep(name = "rules_kustomize", version = "0.6.0")
-
     kustomize = use_extension("@rules_kustomize//kustomize:extensions.bzl", "kustomize")
-    kustomize.download(version = "v5.8.1")
-    helm = use_extension("@rules_kustomize//kustomize:extensions.bzl", "helm")
-    helm.download(version = "v4.1.1")
+    kustomize.toolchain(version = "5.7.1")
+    use_repo(kustomize, "kustomize_toolchains")
 
-If any number of modules wind up specifying different version values for this tag, the latest version—per :term:`Semantic Versioning` sorting—among the proposed candidate versions wins. If any of the tags also include the :field:`tolerate_newer` attribute with a value of :value:`False`, then no competing version newer than that tag's proposed version can win.
+    register_toolchains("@kustomize_toolchains//:all")
 
-The :tool:`helm` tool, used only by :term:`kustomizations` that inflate Helm charts, comes from the `rules_helm <https://github.com/periareon/rules_helm>`__ Bazel module, on which :file:`rules_kustomize` depends and which registers its toolchains automatically. To pin a particular :tool:`helm` version, set the :cmdflag:`--@rules_helm//helm/settings:version` flag, such as in your project's :file:`.bazelrc` file:
+To run the same :tool:`kustomize` binary yourself, add the :field:`host_tools` tag. It creates a repository (named :value:`kustomize` by default) exposing, as :value:`@kustomize//:kustomize`, the binary a hub (:value:`kustomize_toolchains` unless its :field:`toolchains` attribute says otherwise) holds for the host platform. That target runs :tool:`kustomize` from the directory in which you invoked :command:`bazel run`, so relative paths such as :command:`bazel run @kustomize -- build ./overlay` resolve as they would with a locally installed :tool:`kustomize`. Several versions can live side by side by pairing each hub with a host repository of its own.
 
-.. code::
+.. code:: bazel
 
-    build --@rules_helm//helm/settings:version=3.19.0
+    kustomize.host_tools()
+    use_repo(kustomize, "kustomize")
+
+Rules of your own can consume the toolchain through :value:`@rules_kustomize//kustomize:toolchain_type`, whose :type:`ToolchainInfo` carries the :pfield:`kustomize` binary and its :pfield:`version`. The :value:`@rules_kustomize//kustomize:current_toolchain` target exposes the resolved binary to :type:`genrule` and friends as the :value:`KUSTOMIZE` (execpath) and :value:`KUSTOMIZE_RLOCATIONPATH` (rlocationpath) make variables.
 
 With those calls in place, you're now ready to use the rules in your Bazel packages.
 
 Tool Versions
 =============
 
-At present, these rules can load the following versions of :tool:`kustomize`:
+:file:`rules_kustomize` records SHA-256 checksums for a single :tool:`kustomize` version—the default. Requesting any other version makes the extension download that release's :file:`checksums.txt` file while it is evaluated. On Bazel 8.5 and newer, the digests are then stored as facts in your :file:`MODULE.bazel.lock` file, so the lookup happens once per version and air-gapped builds keep working from the lockfile. Older Bazel versions repeat the lookup whenever the extension is re-evaluated.
 
-* `v5.8.3 <https://github.com/kubernetes-sigs/kustomize/releases/tag/kustomize%2Fv5.8.3>`__ (default)
-* `v5.8.1 <https://github.com/kubernetes-sigs/kustomize/releases/tag/kustomize%2Fv5.8.1>`__
-* `v5.8.0 <https://github.com/kubernetes-sigs/kustomize/releases/tag/kustomize%2Fv5.8.0>`__
-* `v5.7.1 <https://github.com/kubernetes-sigs/kustomize/releases/tag/kustomize%2Fv5.7.1>`__
-* `v5.7.0 <https://github.com/kubernetes-sigs/kustomize/releases/tag/kustomize%2Fv5.7.0>`__
+:tool:`helm` versions are whichever the :file:`rules_helm` module considers current. To pin a particular :tool:`helm` version, set the :cmdflag:`--@rules_helm//helm/settings:version` flag, such as in your project's :file:`.bazelrc` file:
 
-:tool:`helm` versions are whichever the :file:`rules_helm` module knows how to download; see that project's documentation.
+.. code::
+
+    build --@rules_helm//helm/settings:version=3.19.0
+
+See each of those projects' documentation for the set of versions they know how to download.
 
 Running the Tool Yourself
 =========================
 
-If you'd like to run the same :tool:`kustomize` tool that these rules use, you can have Bazel run it for you, without installing the tool separately.
+If you'd like to run the same :tool:`kustomize` tool that these rules use, you can have Bazel run it for you, without installing the tool separately. The :field:`host_tools` tag described in `Integrating Into Your Project`_ creates the :value:`@kustomize` repository for that purpose.
 
 .. code:: shell
 
-    bazel run @rules_kustomize//tools/kustomize -- version
+    bazel run @kustomize -- version
 
-Bazel downloads the tool the first time that you ask for it. You get the same version that your builds use: the one you requested as described in `Integrating Into Your Project`_, or the default version otherwise.
+Bazel downloads the tool the first time that you ask for it. You get the same version that your builds use: the one held by the hub the tag names, or the default version otherwise.
 
-Other rules can depend on this same label when they need to run the tool in a build action. A :rule:`genrule` target, for instance, can list it in its :ruleattr:`tools` attribute. Bazel then supplies the tool built for whichever machine will run that action, which may not be the computer in front of you when you use remote execution.
-
-Note that :command:`bazel run` honors the :cmdflag:`--platforms` flag here, as it does for any program that it runs. If you use that flag to build for some other platform, Bazel will try to run the tool built for that platform, and your computer may be unable to run it.
+That label always names the binary for the machine running Bazel, so don't lean on it in build actions. A :rule:`genrule` target can instead list :value:`@rules_kustomize//kustomize:current_toolchain` in its :ruleattr:`toolchains` attribute and refer to the :value:`$(KUSTOMIZE)` make variable. Bazel then supplies the tool built for whichever machine will run that action, which may not be the computer in front of you when you use remote execution.
 
 Rules
 =====

@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+# Embedded by the `go_binary` in each host repository, which supplies
+# the kustomize rlocationpath through `x_defs`.
+go_library(
+    name = "launcher",
+    srcs = [
+        "main.go",
+        "run_unix.go",
+        "run_windows.go",
+    ],
+    importpath = "github.com/UebelAndre/rules_kustomize/kustomize/private/launcher",
+    visibility = ["//visibility:public"],
+    deps = ["@rules_go//go/runfiles"],
+)
