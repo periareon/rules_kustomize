@@ -6,15 +6,8 @@ module(
 
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
 bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_helm", version = "0.37.0")
 bazel_dep(name = "rules_shell", version = "0.10.0")
-
-helm = use_extension("//kustomize:extensions.bzl", "helm")
-use_repo(
-    helm,
-    "helm_tool_toolchains",
-)
-
-register_toolchains("@helm_tool_toolchains//:all")
 
 kustomize = use_extension("//kustomize:extensions.bzl", "kustomize")
 use_repo(

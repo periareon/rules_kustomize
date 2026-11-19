@@ -59,7 +59,6 @@ kustomize_test(
         args = ["version"],
     )
     for tool in [
-        "helm",
         "kustomize",
     ]
 ]

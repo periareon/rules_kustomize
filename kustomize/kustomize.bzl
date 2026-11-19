@@ -157,10 +157,8 @@ _kustomized_resources_attrs = {
     ),
 }
 
-# NB: Calling "Label" here works around a defect that Bazel fixed in
-# version 9.3.0, after which the label as a bare string suffices.
-_kustomize_toolchain_type = Label("//tools/kustomize:toolchain_type")
-_helm_toolchain_type = "//tools/helm:toolchain_type"
+_KUSTOMIZE_TOOLCHAIN_TYPE = Label("//tools/kustomize:toolchain_type")
+_HELM_TOOLCHAIN_TYPE = Label("@rules_helm//helm:toolchain_type")
 
 # Both tools must resolve for the same execution platform, as kustomize
 # invokes helm as a subprocess.
@@ -169,18 +167,18 @@ _EXEC_GROUP = "kustomize"
 def _kustomized_resources_impl(ctx):
     kustomization = ctx.attr.kustomization[KustomizationInfo]
     toolchains = ctx.exec_groups[_EXEC_GROUP].toolchains
-    kustomize_tool = toolchains[_kustomize_toolchain_type].kustomizeinfo.tool
-    helm_tool = None
+    kustomize_tool = toolchains[_KUSTOMIZE_TOOLCHAIN_TYPE].kustomizeinfo.tool
+    tools = [kustomize_tool]
     args = ctx.actions.args()
 
     args.add(_runfile_path(ctx, kustomization.target_file))
     if kustomization.requires_helm:
-        helm_toolchain = toolchains[_helm_toolchain_type]
+        helm_toolchain = toolchains[_HELM_TOOLCHAIN_TYPE]
         if not helm_toolchain:
             fail("No \"helm\" toolchain is available; unable to proceed with invoking \"kustomize\" without it")
-        helm_tool = helm_toolchain.helminfo.tool
+        tools.append(helm_toolchain.helm)
         args.add("--enable-helm")
-        args.add("--helm-command", helm_tool.path)
+        args.add("--helm-command", helm_toolchain.helm.path)
     if kustomization.requires_exec_functions:
         args.add("--enable-exec")
     if kustomization.requires_plugins:
@@ -225,8 +223,7 @@ def _kustomized_resources_impl(ctx):
             kustomize_tool.path,
             args,
         ],
-        tools = [kustomize_tool] +
-                ([helm_tool] if kustomization.requires_helm else []),
+        tools = tools,
         outputs = [ctx.outputs.result],
         use_default_shell_env = use_default_shell_env,
         mnemonic = mnemonic,
@@ -240,9 +237,9 @@ _kustomized_resources = rule(
     exec_groups = {
         _EXEC_GROUP: exec_group(
             toolchains = [
-                _kustomize_toolchain_type,
+                _KUSTOMIZE_TOOLCHAIN_TYPE,
                 config_common.toolchain_type(
-                    _helm_toolchain_type,
+                    _HELM_TOOLCHAIN_TYPE,
                     mandatory = False,
                 ),
             ],
