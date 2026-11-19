@@ -1,0 +1,61 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_go//go:def.bzl", "go_binary")
+load("//kustomize:defs.bzl", "kustomize_plugin", "kustomize_toolchain")
+
+package(default_visibility = ["//test:__subpackages__"])
+
+# An exec generator plugin: emits a ConfigMap from its configuration.
+go_binary(
+    name = "greeter_bin",
+    srcs = ["greeter/main.go"],
+    pure = "on",
+)
+
+kustomize_plugin(
+    name = "greeter",
+    api_version = "example.com/v1",
+    binary = ":greeter_bin",
+    kind = "Greeter",
+)
+
+# A toolchain carrying the plugin, with a stand-in for kustomize that
+# lists the plugin home it is given. Not registered; the launcher below
+# consumes it directly, the way a host repository's launcher consumes
+# the host platform's toolchain.
+go_binary(
+    name = "fake_kustomize",
+    srcs = ["fake_kustomize/main.go"],
+    pure = "on",
+)
+
+kustomize_toolchain(
+    name = "toolchain_with_plugins",
+    kustomize = ":fake_kustomize",
+    plugins = [":greeter"],
+)
+
+go_binary(
+    name = "launcher",
+    data = [":toolchain_with_plugins"],
+    embed = ["//kustomize/private/launcher"],
+    pure = "on",
+    toolchains = [":toolchain_with_plugins"],
+    x_defs = {
+        "github.com/UebelAndre/rules_kustomize/kustomize/private/launcher.kustomizeRlocationpath": "$(KUSTOMIZE_RLOCATIONPATH)",
+        "github.com/UebelAndre/rules_kustomize/kustomize/private/launcher.pluginHomeRlocationpath": "$(KUSTOMIZE_PLUGIN_HOME_RLOCATIONPATH)",
+    },
+)
+
+genrule(
+    name = "plugin_home_listing",
+    outs = ["plugin_home_listing.txt"],
+    cmd = "$(execpath :launcher) > $@",
+    tools = [":launcher"],
+)
+
+diff_test(
+    name = "launcher_plugin_home_test",
+    size = "small",
+    file1 = ":plugin_home_listing",
+    file2 = "expected_plugin_home.txt",
+)

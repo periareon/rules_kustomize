@@ -1,0 +1,5 @@
+apiVersion: example.com/v1
+kind: Banner
+metadata:
+  name: welcome
+text: Welcome!

@@ -4,6 +4,7 @@ go_library(
     name = "builder_lib",
     srcs = ["main.go"],
     importpath = "github.com/UebelAndre/rules_kustomize/kustomize/private/builder",
+    deps = ["//kustomize/private/fscopy"],
 )
 
 go_binary(

@@ -16,6 +16,7 @@ GOLDEN_FILES = {
     "generated_resource": "//test/testdata/generated/resource:golden.yaml",
     "helm": "testdata/helm/golden.yaml",
     "overlay": "testdata/overlay/golden.yaml",
+    "plugins": "testdata/plugins/golden.yaml",
     "remote": "testdata/remote/golden.yaml",
     "remote_helm": "testdata/remote_helm/golden.yaml",
     "simple": "testdata/simple/golden.yaml",
@@ -72,6 +73,15 @@ kustomize_diff_test(
         "//test/testdata/helm/charts",
     ],
     golden_file = GOLDEN_FILES["helm"],
+)
+
+# A legacy exec plugin supplied per target, which the builder places in
+# the plugin home it hands to kustomize.
+kustomize_diff_test(
+    name = "plugins",
+    srcs = ["testdata/plugins/greeter.yaml"],
+    golden_file = GOLDEN_FILES["plugins"],
+    plugins = ["//test/plugins:greeter"],
 )
 
 # A remote base fetched by `http_archive`, placed below the kustomization

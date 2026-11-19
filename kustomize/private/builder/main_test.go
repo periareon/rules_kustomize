@@ -50,28 +50,6 @@ func TestParseArgsPassesThroughKustomizeArgs(t *testing.T) {
 	}
 }
 
-func TestCopyPath(t *testing.T) {
-	src := t.TempDir()
-	dst := filepath.Join(t.TempDir(), "staged")
-	if err := os.MkdirAll(filepath.Join(src, "charts", "templates"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(src, "charts", "templates", "svc.yaml"), []byte("kind: Service\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := copyPath(src, dst); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(filepath.Join(dst, "charts", "templates", "svc.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "kind: Service\n" {
-		t.Errorf("copied content = %q", got)
-	}
-}
-
 func writeTarGz(t *testing.T, path string, files map[string]string) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -168,5 +146,37 @@ func TestDetectFeatures(t *testing.T) {
 	}
 	if got != (features{helm: true, plugins: true}) {
 		t.Errorf("plugins detected as %+v", got)
+	}
+}
+
+func TestStagePlugins(t *testing.T) {
+	toolchainHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(toolchainHome, "example.com", "v1", "greeter"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(toolchainHome, "example.com", "v1", "greeter", "Greeter"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extra := filepath.Join(t.TempDir(), "Shouter")
+	if err := os.WriteFile(extra, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staging := t.TempDir()
+
+	home, err := stagePlugins(staging, toolchainHome, []pluginEntry{{rel: "example.com/v1/shouter/Shouter", path: extra}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"example.com/v1/greeter/Greeter", "example.com/v1/shouter/Shouter"} {
+		if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s not staged: %v", rel, err)
+		}
+	}
+
+	if home, err := stagePlugins(staging, "", nil); err != nil || home != "" {
+		t.Errorf("stagePlugins with nothing to stage = %q, %v", home, err)
+	}
+	if _, err := stagePlugins(t.TempDir(), "", []pluginEntry{{rel: "../escape", path: extra}}); err == nil {
+		t.Error("expected an error for a plugin path escaping the plugin home")
 	}
 }

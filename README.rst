@@ -119,7 +119,7 @@ This "base" target we've defined builds nothing. It prepares the recipe for buil
 
 When we tell Bazel to build this new "simple" target, it will invoke :command:`kustomize build` and write the output to a file named :file:`simple.yaml`. That's the default mapping from target name to output file name, but you can change it with the kustomized_resources_ rule's :ruleattr:`result` attribute. Other Bazel targets can then demand this file as input, forcing Bazel to rebuild the file whenever—and only when—any of the input files change.
 
-The `examples <examples>`__ directory holds two modules exercising the rules. `examples/simple <examples/simple>`__ has a plain :term:`kustomization` and one whose rendered manifests are written back into the source tree with :command:`bazel run`. `examples/helm <examples/helm>`__ patches manifests rendered by `rules_helm <https://github.com/periareon/rules_helm>`__.
+The `examples <examples>`__ directory holds three modules exercising the rules. `examples/simple <examples/simple>`__ has a plain :term:`kustomization` and one whose rendered manifests are written back into the source tree with :command:`bazel run`. `examples/helm <examples/helm>`__ inflates a chart packaged by `rules_helm <https://github.com/periareon/rules_helm>`__. `examples/plugins <examples/plugins>`__ registers a toolchain of its own that carries a plugin.
 
 Integrating Into Your Project
 =============================
@@ -149,7 +149,7 @@ To run the same :tool:`kustomize` binary yourself, add the :field:`host_tools` t
     kustomize.host_tools()
     use_repo(kustomize, "kustomize")
 
-Rules of your own can consume the toolchain through :value:`@rules_kustomize//kustomize:toolchain_type`, whose :type:`ToolchainInfo` carries the :pfield:`kustomize` binary and its :pfield:`version`. The :value:`@rules_kustomize//kustomize:current_toolchain` target exposes the resolved binary to :type:`genrule` and friends as the :value:`KUSTOMIZE` (execpath) and :value:`KUSTOMIZE_RLOCATIONPATH` (rlocationpath) make variables.
+Rules of your own can consume the toolchain through :value:`@rules_kustomize//kustomize:toolchain_type`, whose :type:`ToolchainInfo` carries the :pfield:`kustomize` binary, its :pfield:`version`, the :pfield:`plugin_home` directory. The :value:`@rules_kustomize//kustomize:current_toolchain` target exposes the resolved binary to :type:`genrule` and friends as the :value:`KUSTOMIZE` (execpath) and :value:`KUSTOMIZE_RLOCATIONPATH` (rlocationpath) make variables.
 
 With those calls in place, you're now ready to use the rules in your Bazel packages.
 
@@ -366,6 +366,11 @@ Attributes
 | This may refer to a target using the kustomization_ rule or another rule that yields a KustomizationInfo_   |
 | provider.                                                                                                   |
 +---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`plugins`                   | :type:`label_list`          | :value:`[]`                           |
++---------------------------------------+-----------------------------+---------------------------------------+
+| kustomize_plugin_ targets available to this build, in addition to those the :tool:`kustomize` toolchain     |
+| carries. See Plugins_.                                                                                      |
++---------------------------------------+-----------------------------+---------------------------------------+
 | :ruleattr:`result`                    | :type:`output`              | :value:`<name>.yaml`                  |
 +---------------------------------------+-----------------------------+---------------------------------------+
 | The built result, as a YAML stream of KRM resources in separate documents (per the :cmdflag:`--output`      |
@@ -385,6 +390,73 @@ Example
         },
         kustomization = ":overlay",
     )
+
+kustomize_plugin
+----------------
+
+This defines a legacy :tool:`kustomize` plugin: an executable (an :term:`exec plugin`) or a Go shared object, backing configuration objects of a given :field:`apiVersion` and :field:`kind`. See Plugins_ for how it reaches :tool:`kustomize`.
+
+Attributes
+^^^^^^^^^^
+
++---------------------------------------+-----------------------------+---------------------------------------+
+| **Name**                              | **Type**                    | **Default value**                     |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`name`                      | :type:`string`              | |mandatory|                           |
++---------------------------------------+-----------------------------+---------------------------------------+
+| A unique name for the plugin.                                                                               |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`api_version`               | :type:`string`              | |mandatory|                           |
++---------------------------------------+-----------------------------+---------------------------------------+
+| The :field:`apiVersion` of the plugin's configuration objects, such as :value:`example.com/v1`.             |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`binary`                    | :type:`label`               | :value:`None`                         |
++---------------------------------------+-----------------------------+---------------------------------------+
+| The executable implementing an :term:`exec plugin`. Exactly one of :ruleattr:`binary` and                   |
+| :ruleattr:`library` must be set.                                                                            |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`data`                      | :type:`label_list`          | :value:`[]`                           |
++---------------------------------------+-----------------------------+---------------------------------------+
+| Additional files placed next to the plugin.                                                                 |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`kind`                      | :type:`string`              | |mandatory|                           |
++---------------------------------------+-----------------------------+---------------------------------------+
+| The :field:`kind` of the plugin's configuration objects, such as :value:`Greeter`. The plugin file is named |
+| after it, as :tool:`kustomize` requires.                                                                    |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`library`                   | :type:`label`               | :value:`None`                         |
++---------------------------------------+-----------------------------+---------------------------------------+
+| The shared object implementing a Go plugin. Exactly one of :ruleattr:`binary` and :ruleattr:`library` must  |
+| be set.                                                                                                     |
++---------------------------------------+-----------------------------+---------------------------------------+
+
+Plugins
+=======
+
+:tool:`kustomize` supports extension in two forms. KRM exec functions are referenced by path from a configuration object inside the :term:`kustomization` root, so they only need listing in the kustomization_ rule's :ruleattr:`srcs`; the executable's mode bits survive staging, and the builder turns the functions on when it sees them used. Legacy plugins are instead looked up below a plugin home directory, at :file:`<apiVersion>/<lowercased kind>/<Kind>`, which is where the kustomize_plugin_ rule comes in.
+
+A kustomize_plugin_ can be attached in two places:
+
+* On a :type:`kustomize_toolchain`'s :ruleattr:`plugins`, making it available to every build using that toolchain. The toolchain assembles a plugin home directory and exposes it as the :value:`KUSTOMIZE_PLUGIN_HOME` (execpath) and :value:`KUSTOMIZE_PLUGIN_HOME_RLOCATIONPATH` (rlocationpath) make variables of :value:`@rules_kustomize//kustomize:current_toolchain`, and the :command:`bazel run` launcher of a host repository points :tool:`kustomize` at it. A workspace defines such a toolchain on top of one the extension provides, through the rule's :ruleattr:`base` attribute, and registers it ahead of the defaults; `examples/plugins <examples/plugins>`__ shows the whole arrangement.
+
+* On a kustomized_resources_ target's :ruleattr:`plugins`, for that build alone. The builder lays those over the toolchain's plugin home and hands the result to :tool:`kustomize`.
+
+.. code:: bazel
+
+    kustomize_plugin(
+        name = "greeter",
+        api_version = "example.com/v1",
+        binary = ":greeter_bin",
+        kind = "Greeter",
+    )
+
+    kustomized_resources(
+        name = "greetings",
+        kustomization = ":def",
+        plugins = [":greeter"],
+    )
+
+Container functions, which need Docker at build time, are out of reach of a sandboxed action and aren't supported.
 
 Providers
 =========
@@ -419,6 +491,34 @@ Fields
 +---------------------------------------+----------------------------------------------------------+
 | The set of files (including other :term:`kustomizations`) referenced by this                     |
 | :term:`kustomization`.                                                                           |
++---------------------------------------+----------------------------------------------------------+
+
+KustomizePluginInfo
+-------------------
+
+:type:`KustomizePluginInfo` describes a plugin, as provided by the kustomize_plugin_ rule.
+
+Fields
+^^^^^^
+
++---------------------------------------+----------------------------------------------------------+
+| **Name**                              | **Type**                                                 |
++---------------------------------------+----------------------------------------------------------+
+| :pfield:`api_version`                 | :type:`string`                                           |
++---------------------------------------+----------------------------------------------------------+
+| The :field:`apiVersion` of the plugin's configuration objects.                                   |
++---------------------------------------+----------------------------------------------------------+
+| :pfield:`binary`                      | :type:`File`                                             |
++---------------------------------------+----------------------------------------------------------+
+| The plugin's executable or Go shared object.                                                     |
++---------------------------------------+----------------------------------------------------------+
+| :pfield:`data`                        | :type:`depset of File`                                   |
++---------------------------------------+----------------------------------------------------------+
+| Additional files placed next to the plugin.                                                      |
++---------------------------------------+----------------------------------------------------------+
+| :pfield:`kind`                        | :type:`string`                                           |
++---------------------------------------+----------------------------------------------------------+
+| The :field:`kind` of the plugin's configuration objects.                                         |
 +---------------------------------------+----------------------------------------------------------+
 
 Difficulties

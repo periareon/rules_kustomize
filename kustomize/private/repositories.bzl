@@ -116,6 +116,7 @@ go_binary(
     toolchains = [":toolchain"],
     x_defs = {{
         "github.com/UebelAndre/rules_kustomize/kustomize/private/launcher.kustomizeRlocationpath": "$(KUSTOMIZE_RLOCATIONPATH)",
+        "github.com/UebelAndre/rules_kustomize/kustomize/private/launcher.pluginHomeRlocationpath": "$(KUSTOMIZE_PLUGIN_HOME_RLOCATIONPATH)",
     }},
 )
 """

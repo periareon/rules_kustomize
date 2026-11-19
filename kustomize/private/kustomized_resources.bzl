@@ -3,6 +3,7 @@
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load(":layout.bzl", "staged_path")
+load(":plugin.bzl", "KustomizePluginInfo", "plugin_entries")
 load(":providers.bzl", "KustomizationInfo")
 
 visibility("//kustomize/...")
@@ -20,10 +21,14 @@ def _manifest_entry(entry):
     # tree side by side, as kustomize expects to find them.
     return ["extract" if entry.extract else "copy", entry.path, entry.file.path]
 
+def _plugin_arg(entry):
+    return "{}={}".format(entry.path, entry.file.path)
+
 def _kustomized_resources_impl(ctx):
     info = ctx.attr.kustomization[KustomizationInfo]
     toolchains = ctx.exec_groups[_EXEC_GROUP].toolchains
-    kustomize = toolchains[_KUSTOMIZE_TOOLCHAIN_TYPE].kustomize
+    kustomize_toolchain = toolchains[_KUSTOMIZE_TOOLCHAIN_TYPE]
+    kustomize = kustomize_toolchain.kustomize
     result = ctx.outputs.result or ctx.actions.declare_file(ctx.label.name + ".yaml")
     tools = [kustomize]
 
@@ -46,6 +51,18 @@ def _kustomized_resources_impl(ctx):
     if helm_toolchain:
         tools.append(helm_toolchain.helm)
         args.add("--helm", helm_toolchain.helm)
+
+    # Plugins: the toolchain's plugin home, with this target's own laid
+    # over it.
+    plugin_home = getattr(kustomize_toolchain, "plugin_home", None)
+    if plugin_home:
+        tools.append(plugin_home)
+        args.add_all([plugin_home], before_each = "--plugin_home", expand_directories = False)
+    plugin_layout = []
+    for plugin in ctx.attr.plugins:
+        plugin_layout.extend(plugin_entries(plugin[KustomizePluginInfo]))
+    tools.extend([entry.file for entry in plugin_layout])
+    args.add_all(plugin_layout, before_each = "--plugin", map_each = _plugin_arg)
 
     # Everything after this point is passed through to `kustomize build`.
     args.add("--")
@@ -78,8 +95,8 @@ The kustomization's files are staged into a private directory tree
 before building, so that files from the source tree and generated files
 sit together as kustomize expects. The builder reads the staged
 kustomization files and enables the Helm chart inflator when one uses
-`helmCharts` or `helmGlobals`, and plugins (including exec and Starlark
-functions) when one uses `generators`, `transformers` or `validators`.""",
+`helmCharts` or `helmGlobals`, and plugins (including exec functions)
+when one uses `generators`, `transformers` or `validators`.""",
     implementation = _kustomized_resources_impl,
     attrs = {
         "args": attr.string_list(
@@ -95,6 +112,11 @@ it runs, so this is how they are configured.""",
             doc = "kustomization to build.",
             providers = [KustomizationInfo],
             mandatory = True,
+        ),
+        "plugins": attr.label_list(
+            doc = "Plugins available to this build, in addition to the toolchain's.",
+            cfg = config.exec(_EXEC_GROUP),
+            providers = [KustomizePluginInfo],
         ),
         "result": attr.output(
             doc = "The built result, as a YAML stream of KRM resources in separate documents. Defaults to `<name>.yaml`.",

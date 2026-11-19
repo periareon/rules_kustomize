@@ -20,6 +20,11 @@ import (
 // make variable.
 var kustomizeRlocationpath string
 
+// pluginHomeRlocationpath is the rlocationpath of the toolchain's plugin
+// home directory, set at link time from its
+// `KUSTOMIZE_PLUGIN_HOME_RLOCATIONPATH` make variable. It may be empty.
+var pluginHomeRlocationpath string
+
 func main() {
 	if kustomizeRlocationpath == "" {
 		fatalf("launcher was built without the rlocationpath of kustomize")
@@ -34,6 +39,20 @@ func main() {
 	kustomize, err = filepath.Abs(kustomize)
 	if err != nil {
 		fatalf("failed to resolve %s: %v", kustomize, err)
+	}
+
+	if pluginHomeRlocationpath != "" {
+		pluginHome, err := runfiles.Rlocation(pluginHomeRlocationpath)
+		if err != nil {
+			fatalf("failed to locate %s in runfiles: %v", pluginHomeRlocationpath, err)
+		}
+		if pluginHome, err = filepath.Abs(pluginHome); err != nil {
+			fatalf("failed to resolve %s: %v", pluginHome, err)
+		}
+		// An explicit setting from the caller wins.
+		if _, set := os.LookupEnv("KUSTOMIZE_PLUGIN_HOME"); !set {
+			os.Setenv("KUSTOMIZE_PLUGIN_HOME", pluginHome)
+		}
 	}
 
 	if dir := os.Getenv("BUILD_WORKING_DIRECTORY"); dir != "" {

@@ -9,6 +9,8 @@ exports_files([
     "kustomization.bzl",
     "kustomization_info.bzl",
     "kustomize.bzl",
+    "kustomize_plugin.bzl",
+    "kustomize_plugin_info.bzl",
     "kustomize_toolchain.bzl",
     "kustomized_resources.bzl",
 ])
@@ -30,6 +32,8 @@ bzl_library(
     deps = [
         ":kustomization",
         ":kustomization_info",
+        ":kustomize_plugin",
+        ":kustomize_plugin_info",
         ":kustomize_toolchain",
         ":kustomized_resources",
     ],
@@ -59,9 +63,23 @@ bzl_library(
     deps = [
         ":kustomization",
         ":kustomization_info",
+        ":kustomize_plugin",
+        ":kustomize_plugin_info",
         ":kustomize_toolchain",
         ":kustomized_resources",
     ],
+)
+
+bzl_library(
+    name = "kustomize_plugin",
+    srcs = ["kustomize_plugin.bzl"],
+    deps = ["//kustomize/private:bzl_lib"],
+)
+
+bzl_library(
+    name = "kustomize_plugin_info",
+    srcs = ["kustomize_plugin_info.bzl"],
+    deps = ["//kustomize/private:bzl_lib"],
 )
 
 bzl_library(

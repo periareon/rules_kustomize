@@ -1,0 +1,57 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_go//go:def.bzl", "go_binary")
+load(
+    "@rules_kustomize//kustomize:defs.bzl",
+    "kustomization",
+    "kustomize_plugin",
+    "kustomize_toolchain",
+    "kustomized_resources",
+)
+
+# A legacy exec generator plugin, built from source here.
+go_binary(
+    name = "banner_bin",
+    srcs = ["banner/main.go"],
+    pure = "on",
+)
+
+kustomize_plugin(
+    name = "banner",
+    api_version = "example.com/v1",
+    binary = ":banner_bin",
+    kind = "Banner",
+)
+
+# A toolchain on top of the one the module extension provides for the
+# host platform, carrying the plugin for every build to use.
+kustomize_toolchain(
+    name = "toolchain_impl",
+    base = "@kustomize//:toolchain",
+    plugins = [":banner"],
+)
+
+toolchain(
+    name = "toolchain",
+    toolchain = ":toolchain_impl",
+    toolchain_type = "@rules_kustomize//kustomize:toolchain_type",
+)
+
+# A kustomization whose `generators` entry names a Banner object; nothing
+# here says where the plugin comes from.
+kustomization(
+    name = "def",
+    src = "kustomization.yaml",
+    srcs = ["banner.yaml"],
+)
+
+kustomized_resources(
+    name = "site",
+    kustomization = ":def",
+)
+
+diff_test(
+    name = "site_test",
+    size = "small",
+    file1 = ":site",
+    file2 = "expected.yaml",
+)

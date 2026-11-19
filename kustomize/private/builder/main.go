@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/UebelAndre/rules_kustomize/kustomize/private/fscopy"
 )
 
 func main() {
@@ -35,12 +37,34 @@ func main() {
 	}
 }
 
+// pluginEntry places a file below the plugin home.
+type pluginEntry struct {
+	rel  string
+	path string
+}
+
+// pluginEntries parses repeated "--plugin <rel>=<path>" flags.
+type pluginEntries []pluginEntry
+
+func (p *pluginEntries) String() string { return fmt.Sprint(*p) }
+
+func (p *pluginEntries) Set(value string) error {
+	rel, path, ok := strings.Cut(value, "=")
+	if !ok || rel == "" || path == "" {
+		return fmt.Errorf("plugin entry %q is not of the form <path below plugin home>=<source path>", value)
+	}
+	*p = append(*p, pluginEntry{rel: rel, path: path})
+	return nil
+}
+
 type options struct {
-	kustomize string
-	helm      string
-	manifest  string
-	root      string
-	output    string
+	kustomize  string
+	helm       string
+	manifest   string
+	root       string
+	output     string
+	pluginHome string
+	plugins    pluginEntries
 	// kustomizeArgs are passed through to "kustomize build".
 	kustomizeArgs []string
 }
@@ -53,6 +77,8 @@ func parseArgs(argv []string) (*options, error) {
 	fs.StringVar(&opts.manifest, "manifest", "", "file listing an operation (copy or extract), the staged path and the source path of each input file on consecutive lines")
 	fs.StringVar(&opts.root, "root", "", "staged path of the directory holding the kustomization file to build")
 	fs.StringVar(&opts.output, "output", "", "file to write the built resources to")
+	fs.StringVar(&opts.pluginHome, "plugin_home", "", "a toolchain's plugin home directory to make available to kustomize")
+	fs.Var(&opts.plugins, "plugin", "a file to place below the plugin home, as <path below plugin home>=<source path>; may repeat")
 	if err := fs.Parse(argv); err != nil {
 		return nil, err
 	}
@@ -103,13 +129,18 @@ func run(argv []string) error {
 		var err error
 		switch entry.op {
 		case opCopy:
-			err = copyPath(entry.path, dst)
+			err = fscopy.CopyPath(entry.path, dst)
 		case opExtract:
 			err = extractTarGz(entry.path, dst)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to stage %s: %w", entry.path, err)
 		}
+	}
+
+	pluginHome, err := stagePlugins(staging, opts.pluginHome, opts.plugins)
+	if err != nil {
+		return err
 	}
 
 	kustomize, err := filepath.Abs(opts.kustomize)
@@ -149,6 +180,9 @@ func run(argv []string) error {
 	cmd := exec.Command(kustomize, args...)
 	cmd.Stdout = output
 	cmd.Stderr = os.Stderr
+	if pluginHome != "" {
+		cmd.Env = append(os.Environ(), "KUSTOMIZE_PLUGIN_HOME="+pluginHome)
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("kustomize build failed: %w", err)
 	}
@@ -207,55 +241,6 @@ func parseManifest(r io.Reader) ([]manifestEntry, error) {
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
 	return entries, nil
-}
-
-// copyPath copies a file, or a directory tree, following symbolic
-// links along the way.
-func copyPath(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		children, err := os.ReadDir(src)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(dst, 0o755); err != nil {
-			return err
-		}
-		for _, child := range children {
-			if err := copyPath(filepath.Join(src, child.Name()), filepath.Join(dst, child.Name())); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	return copyFile(src, dst, info.Mode().Perm())
-}
-
-func copyFile(src, dst string, mode os.FileMode) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("%s is staged from more than one input", dst)
-	}
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err = errors.Join(err, out.Close())
-	}()
-	_, err = io.Copy(out, in)
-	return err
 }
 
 // extractTarGz unpacks a gzip compressed tar archive, such as a packaged
@@ -372,4 +357,33 @@ func detectFeatures(dir string) (features, error) {
 		return scanner.Err()
 	})
 	return found, err
+}
+
+// stagePlugins assembles the plugin home kustomize should use: the
+// toolchain's plugin home, if any, with the target's own plugins laid
+// over it. It returns "" when there is nothing to offer.
+func stagePlugins(staging, toolchainHome string, plugins []pluginEntry) (string, error) {
+	if toolchainHome == "" && len(plugins) == 0 {
+		return "", nil
+	}
+	home := filepath.Join(staging, "kustomize-plugins")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return "", err
+	}
+	if toolchainHome != "" {
+		if err := fscopy.CopyPath(toolchainHome, home); err != nil {
+			return "", fmt.Errorf("failed to stage the toolchain's plugins: %w", err)
+		}
+	}
+	prefix := home + string(filepath.Separator)
+	for _, plugin := range plugins {
+		dst := filepath.Join(home, filepath.FromSlash(plugin.rel))
+		if !strings.HasPrefix(dst, prefix) {
+			return "", fmt.Errorf("refusing to place plugin file %s outside of the plugin home", plugin.rel)
+		}
+		if err := fscopy.CopyPath(plugin.path, dst); err != nil {
+			return "", fmt.Errorf("failed to stage plugin file %s: %w", plugin.path, err)
+		}
+	}
+	return home, nil
 }

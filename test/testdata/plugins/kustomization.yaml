@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# A legacy exec plugin, found below the plugin home that the
+# `kustomized_resources` target assembles from its `plugins`.
+generators:
+- greeter.yaml

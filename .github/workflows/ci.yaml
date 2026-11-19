@@ -42,14 +42,14 @@ jobs:
 
       - name: Setup Bazelrc (Windows)
         run: |
-          for dir in . examples/helm examples/simple; do
+          for dir in . examples/helm examples/plugins examples/simple; do
             echo "startup --output_user_root=C:/bzl" > "${dir}/user.bazelrc"
           done
         if: startswith(runner.os, 'Windows')
         shell: bash
       - name: Setup Bazelrc
         run: |
-          for dir in . examples/helm examples/simple; do
+          for dir in . examples/helm examples/plugins examples/simple; do
             echo "common --keep_going" >> "${dir}/user.bazelrc"
           done
         shell: bash
@@ -80,6 +80,15 @@ jobs:
       - name: Test helm example (Windows)
         run: bazel $env:BAZEL_STARTUP_FLAGS test //...
         working-directory: examples/helm
+        if: startswith(runner.os, 'Windows')
+
+      - name: Test plugins example (Unix)
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} test --strategy=TestRunner=processwrapper-sandbox //...
+        working-directory: examples/plugins
+        if: startswith(runner.os, 'Windows') != true
+      - name: Test plugins example (Windows)
+        run: bazel $env:BAZEL_STARTUP_FLAGS test //...
+        working-directory: examples/plugins
         if: startswith(runner.os, 'Windows')
 
   ci-buildifier:
