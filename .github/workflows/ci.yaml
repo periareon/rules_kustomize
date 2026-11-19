@@ -1,23 +1,102 @@
-name: Continuous Integration
+name: CI
+
 on:
   # See https://docs.github.com/en/actions/reference/events-that-trigger-workflows.
+  push:
+    branches:
+      - main
   pull_request:
+    types:
+      - opened
+      - synchronize
+
+env:
+  BAZEL_STARTUP_FLAGS: --bazelrc=${{ github.workspace }}/.github/github.bazelrc
+
 jobs:
-  bazel-source-inspection:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-22.04
+          - ubuntu-24.04-arm
+          - windows-latest
+        bazel:
+          - 7.x
+          - 8.x
+          - 9.x
+    env:
+      # Bazelisk picks the newest release in the series.
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - name: Setup Bazelrc (Windows)
+        run: |
+          for dir in . examples/helm examples/simple; do
+            echo "startup --output_user_root=C:/bzl" > "${dir}/user.bazelrc"
+          done
+        if: startswith(runner.os, 'Windows')
+        shell: bash
+      - name: Setup Bazelrc
+        run: |
+          for dir in . examples/helm examples/simple; do
+            echo "common --keep_going" >> "${dir}/user.bazelrc"
+          done
+        shell: bash
+
+      # Work around https://github.com/bazelbuild/bazel/issues/7470 by
+      # way of the suggestion here:
+      # https://github.com/bazelbuild/bazel/issues/7470#issuecomment-764591831.
+      - name: Test (Unix)
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} test --strategy=TestRunner=processwrapper-sandbox //...
+        if: startswith(runner.os, 'Windows') != true
+      - name: Test (Windows)
+        run: bazel $env:BAZEL_STARTUP_FLAGS test //...
+        if: startswith(runner.os, 'Windows')
+
+      - name: Test simple example (Unix)
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} test --strategy=TestRunner=processwrapper-sandbox //...
+        working-directory: examples/simple
+        if: startswith(runner.os, 'Windows') != true
+      - name: Test simple example (Windows)
+        run: bazel $env:BAZEL_STARTUP_FLAGS test //...
+        working-directory: examples/simple
+        if: startswith(runner.os, 'Windows')
+
+      - name: Test helm example (Unix)
+        run: bazel ${BAZEL_STARTUP_FLAGS[@]} test --strategy=TestRunner=processwrapper-sandbox //...
+        working-directory: examples/helm
+        if: startswith(runner.os, 'Windows') != true
+      - name: Test helm example (Windows)
+        run: bazel $env:BAZEL_STARTUP_FLAGS test //...
+        working-directory: examples/helm
+        if: startswith(runner.os, 'Windows')
+
+  ci-buildifier:
     runs-on: ubuntu-latest
     steps:
-    - name: Check out VCS repository
-      uses: actions/checkout@v7
-    - name: Confirm Bazel files is formatted per "buildifier"
-      uses: thompsonja/bazel-buildifier@v0.4.0
-      with:
-        # See https://github.com/bazelbuild/buildtools/blob/master/WARNINGS.md.
-        warnings: -function-docstring,-module-docstring
-        buildifier_version: v10.1.0
-  build-test:
+      - uses: actions/checkout@v7
+      - name: Confirm Bazel files are formatted per "buildifier"
+        uses: thompsonja/bazel-buildifier@v0.4.0
+        with:
+          # See https://github.com/bazelbuild/buildtools/blob/master/WARNINGS.md.
+          warnings: -function-docstring,-module-docstring
+          buildifier_version: v10.1.0
+
+  ci-gofmt:
     runs-on: ubuntu-latest
     steps:
-    - name: Check out VCS repository
-      uses: actions/checkout@v7
-    - name: Build and test all Bazel targets
-      uses: ./.github/actions/build-test
+      - uses: actions/checkout@v7
+      - uses: Jerome1337/gofmt-action@v1.0.5
+        with:
+          gofmt-flags: -e -d
