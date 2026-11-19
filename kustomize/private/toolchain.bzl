@@ -67,6 +67,7 @@ def _kustomize_toolchain_impl(ctx):
     base = ctx.attr.base[platform_common.ToolchainInfo] if ctx.attr.base else None
     binary = base.kustomize if base else ctx.file.kustomize
     version = ctx.attr.version or (base.version if base else "")
+    extra_args = (getattr(base, "extra_args", []) if base else []) + ctx.attr.extra_args
     plugin_home = _plugin_home(ctx, base)
 
     template_variables = platform_common.TemplateVariableInfo({
@@ -83,6 +84,7 @@ def _kustomize_toolchain_impl(ctx):
 
     toolchain_info = platform_common.ToolchainInfo(
         default_info = default_info,
+        extra_args = extra_args,
         kustomize = binary,
         plugin_home = plugin_home,
         template_variables = template_variables,
@@ -118,7 +120,8 @@ toolchain(
 Rules consume it through `@rules_kustomize//kustomize:toolchain_type`. The
 `ToolchainInfo` carries `kustomize` (the binary `File`), `plugin_home` (a
 directory laid out for `KUSTOMIZE_PLUGIN_HOME`, holding the toolchain's
-`plugins`) and `version` (a string, possibly empty).
+`plugins`), `extra_args` (a list of strings for every `kustomize build`)
+and `version` (a string, possibly empty).
 
 `@rules_kustomize//kustomize:current_toolchain` exposes those through make
 variables: `KUSTOMIZE` and `KUSTOMIZE_PLUGIN_HOME` are execpaths, for use in
@@ -131,6 +134,9 @@ in runfiles.
             doc = "A kustomize toolchain to build on, supplying the binary, version, plugins and extra arguments this one adds to. Exactly one of `kustomize` and `base` must be set.",
             providers = [platform_common.ToolchainInfo],
             cfg = "exec",
+        ),
+        "extra_args": attr.string_list(
+            doc = "Additional arguments for every `kustomize build` run with this toolchain, placed before the build's own (and after the base toolchain's).",
         ),
         "kustomize": attr.label(
             doc = "A kustomize binary. Exactly one of `kustomize` and `base` must be set.",

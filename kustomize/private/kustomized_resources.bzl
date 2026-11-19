@@ -64,8 +64,12 @@ def _kustomized_resources_impl(ctx):
     tools.extend([entry.file for entry in plugin_layout])
     args.add_all(plugin_layout, before_each = "--plugin", map_each = _plugin_arg)
 
-    # Everything after this point is passed through to `kustomize build`.
+    # Everything after this point is passed through to `kustomize build`,
+    # the toolchain's extra arguments first so that a build's own, which
+    # come last, can override them.
     args.add("--")
+    args.add_all(getattr(kustomize_toolchain, "extra_args", []))
+
     args.add_all(ctx.attr.args)
 
     ctx.actions.run(

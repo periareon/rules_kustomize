@@ -13,6 +13,7 @@ PINNED_VERSION = "5.7.1"
 # keyed by the name of its `kustomize_diff_test`.
 GOLDEN_FILES = {
     "generated_kustomization": "//test/testdata/generated/kustomization:golden.yaml",
+    "functions": "testdata/functions/golden.yaml",
     "generated_resource": "//test/testdata/generated/resource:golden.yaml",
     "helm": "testdata/helm/golden.yaml",
     "overlay": "testdata/overlay/golden.yaml",
@@ -27,6 +28,8 @@ kustomize_diff_test(
     srcs = [
         "testdata/simple/config-bindings",
     ],
+    # Exercise the pass-through of extra arguments; this one is harmless.
+    args = ["--stack-trace"],
     golden_file = GOLDEN_FILES["simple"],
 )
 
@@ -73,6 +76,18 @@ kustomize_diff_test(
         "//test/testdata/helm/charts",
     ],
     golden_file = GOLDEN_FILES["helm"],
+)
+
+# A KRM exec function built by Bazel and placed at the path its function
+# configuration names.
+kustomize_diff_test(
+    name = "functions",
+    srcs = ["testdata/functions/shout.yaml"],
+    # Exercise the pass-through of function environment variables; the
+    # function doesn't read it.
+    env = {"GREETING_STYLE": "loud"},
+    executables = ["//test/functions:shouter"],
+    golden_file = GOLDEN_FILES["functions"],
 )
 
 # A legacy exec plugin supplied per target, which the builder places in

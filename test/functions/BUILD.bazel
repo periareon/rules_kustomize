@@ -1,0 +1,10 @@
+load("@rules_go//go:def.bzl", "go_binary")
+
+# A KRM exec generator function: emits a ConfigMap shouting the
+# `message` of its function configuration.
+go_binary(
+    name = "shouter",
+    srcs = ["shouter/main.go"],
+    pure = "on",
+    visibility = ["//test:__subpackages__"],
+)

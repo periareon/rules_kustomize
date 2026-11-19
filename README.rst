@@ -149,7 +149,7 @@ To run the same :tool:`kustomize` binary yourself, add the :field:`host_tools` t
     kustomize.host_tools()
     use_repo(kustomize, "kustomize")
 
-Rules of your own can consume the toolchain through :value:`@rules_kustomize//kustomize:toolchain_type`, whose :type:`ToolchainInfo` carries the :pfield:`kustomize` binary, its :pfield:`version`, the :pfield:`plugin_home` directory. The :value:`@rules_kustomize//kustomize:current_toolchain` target exposes the resolved binary to :type:`genrule` and friends as the :value:`KUSTOMIZE` (execpath) and :value:`KUSTOMIZE_RLOCATIONPATH` (rlocationpath) make variables.
+Rules of your own can consume the toolchain through :value:`@rules_kustomize//kustomize:toolchain_type`, whose :type:`ToolchainInfo` carries the :pfield:`kustomize` binary, its :pfield:`version`, the :pfield:`plugin_home` directory and :pfield:`extra_args`, the arguments a :type:`kustomize_toolchain` declared with its :ruleattr:`extra_args` attribute, which kustomized_resources_ passes to every :command:`kustomize build` ahead of the build's own. The :value:`@rules_kustomize//kustomize:current_toolchain` target exposes the resolved binary to :type:`genrule` and friends as the :value:`KUSTOMIZE` (execpath) and :value:`KUSTOMIZE_RLOCATIONPATH` (rlocationpath) make variables.
 
 With those calls in place, you're now ready to use the rules in your Bazel packages.
 
@@ -288,6 +288,12 @@ Attributes
 +-----------------------------------------+-----------------------------+---------------------------------------+
 | The set of `kustomizations <kustomization_>`_ referenced as resources_ by this :term:`kustomization`.         |
 +-----------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`executables`                 | :type:`label_list`          | :value:`[]`                           |
++-----------------------------------------+-----------------------------+---------------------------------------+
+| Executables placed in this :term:`kustomization`'s root, each under its own file name, so that a KRM exec      |
+| function built by Bazel sits where its function configuration points; see Plugins_. Two executables may not   |
+| share a name. An executable runs with no runfiles, so it must be self contained.                              |
++-----------------------------------------+-----------------------------+---------------------------------------+
 | :ruleattr:`src`                         | :type:`label`               | |mandatory|                           |
 +-----------------------------------------+-----------------------------+---------------------------------------+
 | :file:`kustomization.yaml`, :file:`kustomization.yml`, or :file:`kustomization` file for this                 |
@@ -352,6 +358,11 @@ Attributes
 | :ruleattr:`name`                      | :type:`string`              | |mandatory|                           |
 +---------------------------------------+-----------------------------+---------------------------------------+
 | A unique name for the :term:`variant`.                                                                      |
++---------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`args`                      | :type:`string_list`         | :value:`[]`                           |
++---------------------------------------+-----------------------------+---------------------------------------+
+| Additional arguments for this :command:`kustomize build`, placed after every other argument, including the  |
+| toolchain's :ruleattr:`extra_args`.                                                                         |
 +---------------------------------------+-----------------------------+---------------------------------------+
 | :ruleattr:`env`                       | :type:`string_dict`         | :value:`{}`                           |
 +---------------------------------------+-----------------------------+---------------------------------------+
@@ -433,7 +444,33 @@ Attributes
 Plugins
 =======
 
-:tool:`kustomize` supports extension in two forms. KRM exec functions are referenced by path from a configuration object inside the :term:`kustomization` root, so they only need listing in the kustomization_ rule's :ruleattr:`srcs`; the executable's mode bits survive staging, and the builder turns the functions on when it sees them used. Legacy plugins are instead looked up below a plugin home directory, at :file:`<apiVersion>/<lowercased kind>/<Kind>`, which is where the kustomize_plugin_ rule comes in.
+:tool:`kustomize` supports extension in two forms, and the builder turns both on when it sees a :term:`kustomization` list :field:`generators`, :field:`transformers` or :field:`validators`.
+
+KRM exec functions are referenced by path from a configuration object inside the :term:`kustomization` root. A checked-in script only needs listing in the kustomization_ rule's :ruleattr:`srcs`, as its mode bits survive staging. An executable Bazel builds, such as a :type:`go_binary`, goes in the :ruleattr:`executables` attribute instead, which places it in the root under its own file name. The file keeps its extension, and :tool:`kustomize` launches it the way Go's :type:`os/exec` does, so a configuration naming :value:`./shouter` finds :file:`shouter` on Linux and macOS and :file:`shouter.exe` on Windows alike:
+
+.. code:: bazel
+
+    kustomization(
+        name = "def",
+        src = "kustomization.yaml",
+        srcs = ["shout.yaml"],
+        executables = ["//functions:shouter"],
+    )
+
+.. code:: yaml
+
+    # shout.yaml
+    apiVersion: example.com/v1
+    kind: Shouter
+    metadata:
+      name: shouter
+      annotations:
+        config.kubernetes.io/function: |
+          exec:
+            path: ./shouter
+    message: hello
+
+Legacy plugins are instead looked up below a plugin home directory, at :file:`<apiVersion>/<lowercased kind>/<Kind>`, which is where the kustomize_plugin_ rule comes in.
 
 A kustomize_plugin_ can be attached in two places:
 

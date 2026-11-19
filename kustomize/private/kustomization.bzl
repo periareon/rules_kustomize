@@ -45,6 +45,35 @@ def _chart_layout(ctx, root):
 
     return [struct(file = f, path = chart_dir, extract = True) for f in ctx.files.helm_charts]
 
+def _executable_layout(ctx, root):
+    """Place each executable in the kustomization root, under its own name.
+
+    Function configurations refer to the executable as `./<name>`. The
+    staged file keeps its extension, so `./shouter` finds `shouter.exe`
+    on Windows, where kustomize's process launcher tries the usual
+    executable extensions.
+    """
+    layout = []
+    seen = {}
+    for target in ctx.attr.executables:
+        executable = target[DefaultInfo].files_to_run.executable
+        if not executable:
+            files = target[DefaultInfo].files.to_list()
+            if len(files) != 1:
+                fail("{} in executables must be an executable target or a single file".format(target.label))
+            executable = files[0]
+        if executable.basename in seen:
+            if seen[executable.basename] != executable:
+                fail("executables {} and {} would both be placed at {} in the kustomization root".format(
+                    seen[executable.basename].short_path,
+                    executable.short_path,
+                    executable.basename,
+                ))
+            continue
+        seen[executable.basename] = executable
+        layout.append(struct(file = executable, path = paths.join(root, executable.basename), extract = False))
+    return layout
+
 # The file names kustomize recognizes as a kustomization.
 _KUSTOMIZATION_FILE_NAMES = ["kustomization.yaml", "kustomization.yml", "kustomization"]
 
@@ -84,6 +113,10 @@ def _kustomization_impl(ctx):
 
     direct_layout.extend(_chart_layout(ctx, root))
 
+    executable_layout = _executable_layout(ctx, root)
+    direct_layout.extend(executable_layout)
+    direct_files.extend([entry.file for entry in executable_layout])
+
     transitive_resources = depset(direct_files, transitive = transitive_files)
 
     return [
@@ -122,6 +155,18 @@ Must agree with the `helmGlobals.chartHome` field, whose default this matches.""
         "deps": attr.label_list(
             doc = "The set of kustomizations referenced as resources by this kustomization.",
             providers = [KustomizationInfo],
+        ),
+        "executables": attr.label_list(
+            doc = """Executables placed in this kustomization's root, each under its own file name.
+
+This is how a KRM exec function built by Bazel, such as a `go_binary`
+named `shouter`, ends up where its function configuration points
+(`exec: path: ./shouter`). The file keeps its extension, so the same
+configuration finds `shouter.exe` on Windows. Two executables may not
+share a name. An executable runs with no runfiles, so it must be self
+contained; anything it needs beside it has to come through `srcs`.""",
+            allow_files = True,
+            cfg = "exec",
         ),
         "helm_charts": attr.label_list(
             doc = """Packaged Helm charts (`.tgz` archives) for the `helmCharts` field to inflate.

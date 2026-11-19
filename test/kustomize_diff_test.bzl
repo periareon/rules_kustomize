@@ -16,6 +16,7 @@ def kustomize_diff_test(
         srcs = [],
         deps = [],
         kustomization_file = None,
+        executables = [],
         helm_charts = [],
         **kwargs):
     """Builds a kustomization and compares the result against a golden file.
@@ -26,6 +27,7 @@ def kustomize_diff_test(
         srcs: Files referenced by the kustomization.
         deps: Other kustomizations referenced by the kustomization.
         kustomization_file: The kustomization file, defaulting to `testdata/<name>/kustomization.yaml`.
+        executables: Executables to place in the kustomization root.
         helm_charts: Packaged charts to unpack below the kustomization's chart home.
         **kwargs: Additional arguments for `kustomized_resources`.
     """
@@ -33,6 +35,7 @@ def kustomize_diff_test(
         name = name,
         deps = deps,
         src = kustomization_file or "testdata/%s/kustomization.yaml" % name,
+        executables = executables,
         helm_charts = helm_charts,
         srcs = srcs,
     )
