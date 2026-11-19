@@ -12,19 +12,19 @@ load(
 
 def kustomize_diff_test(
         name,
+        golden_file,
         srcs = [],
         deps = [],
         kustomization_file = None,
-        golden_file = None,
         **kwargs):
     """Builds a kustomization and compares the result against a golden file.
 
     Args:
         name: The name of the kustomization, matching a directory below `testdata`.
+        golden_file: The expected result.
         srcs: Files referenced by the kustomization.
         deps: Other kustomizations referenced by the kustomization.
         kustomization_file: The kustomization file, defaulting to `testdata/<name>/kustomization.yaml`.
-        golden_file: The expected result, defaulting to `testdata/<name>/golden.yaml`.
         **kwargs: Additional arguments for `kustomized_resources`.
     """
     kustomization(
@@ -45,6 +45,6 @@ def kustomize_diff_test(
     diff_test(
         name = name + "_test",
         file1 = generated_resources_file,
-        file2 = golden_file or "testdata/%s/golden.yaml" % name,
+        file2 = golden_file,
         size = "small",
     )

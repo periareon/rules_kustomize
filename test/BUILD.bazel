@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 # buildifier: disable=bzl-visibility
 load("//kustomize/private:versions.bzl", "DEFAULT_VERSION")
@@ -8,11 +9,22 @@ load("kustomize_diff_test.bzl", "kustomize_diff_test")
 # Must match the `kustomize_dev.toolchain(name = "kustomize_pinned_toolchains", ...)` tag in MODULE.bazel.
 PINNED_VERSION = "5.7.1"
 
+# The golden file each kustomization's built result is compared against,
+# keyed by the name of its `kustomize_diff_test`.
+GOLDEN_FILES = {
+    "generated_kustomization": "//test/testdata/generated/kustomization:golden.yaml",
+    "generated_resource": "//test/testdata/generated/resource:golden.yaml",
+    "helm": "testdata/helm/golden.yaml",
+    "overlay": "testdata/overlay/golden.yaml",
+    "simple": "testdata/simple/golden.yaml",
+}
+
 kustomize_diff_test(
     name = "simple",
     srcs = [
         "testdata/simple/config-bindings",
     ],
+    golden_file = GOLDEN_FILES["simple"],
 )
 
 kustomize_diff_test(
@@ -20,7 +32,7 @@ kustomize_diff_test(
     srcs = [
         "//test/testdata/generated/kustomization:bindings.env",
     ],
-    golden_file = "//test/testdata/generated/kustomization:golden.yaml",
+    golden_file = GOLDEN_FILES["generated_kustomization"],
     kustomization_file = "//test/testdata/generated/kustomization:kustomization.yaml",
 )
 
@@ -29,7 +41,7 @@ kustomize_diff_test(
     srcs = [
         "//test/testdata/generated/resource:bindings.env",
     ],
-    golden_file = "//test/testdata/generated/resource:golden.yaml",
+    golden_file = GOLDEN_FILES["generated_resource"],
     kustomization_file = "//test/testdata/generated/resource:kustomization.yaml",
 )
 
@@ -44,6 +56,7 @@ kustomize_diff_test(
         "--load-restrictor",
         "LoadRestrictionsNone",
     ],
+    golden_file = GOLDEN_FILES["overlay"],
     deps = [
         ":simple",
         "//test/testdata/components/extra-translations:extra_translations",
@@ -56,6 +69,31 @@ kustomize_diff_test(
         "testdata/helm/pdb.yaml",
         "//test/testdata/helm/charts",
     ],
+    golden_file = GOLDEN_FILES["helm"],
+)
+
+# Copies the built results over the golden files above:
+#
+#     bazel run //test:regenerate_golden_files
+go_library(
+    name = "regenerate_golden_files_lib",
+    srcs = ["regenerate_golden_files.go"],
+    importpath = "github.com/UebelAndre/rules_kustomize/test/regenerate_golden_files",
+    deps = ["@rules_go//go/runfiles"],
+)
+
+go_binary(
+    name = "regenerate_golden_files",
+    args = [
+        "$(rlocationpath :{name}_resources.yaml)=$(rootpath {golden})".format(
+            name = name,
+            golden = golden,
+        )
+        for name, golden in GOLDEN_FILES.items()
+    ],
+    data = [":{}_resources.yaml".format(name) for name in GOLDEN_FILES] + GOLDEN_FILES.values(),
+    embed = [":regenerate_golden_files_lib"],
+    pure = "on",
 )
 
 # A kustomization target stands for its kustomization file, so other
