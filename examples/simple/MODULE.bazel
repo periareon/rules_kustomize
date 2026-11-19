@@ -1,0 +1,11 @@
+module(name = "rules_kustomize_examples_simple")
+
+bazel_dep(name = "rules_kustomize", version = "0.0.0")
+local_path_override(
+    module_name = "rules_kustomize",
+    path = "../../",
+)
+
+# Used by the "update" example, which writes rendered manifests back into
+# the source tree.
+bazel_dep(name = "bazel_lib", version = "3.0.0")

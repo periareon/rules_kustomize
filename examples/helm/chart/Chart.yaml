@@ -1,0 +1,6 @@
+apiVersion: v2
+name: greeter
+description: A chart with a single ConfigMap, rendered by rules_helm and patched by kustomize.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

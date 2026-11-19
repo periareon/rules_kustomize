@@ -119,6 +119,8 @@ This "base" target we've defined builds nothing. It prepares the recipe for buil
 
 When we tell Bazel to build this new "simple" target, it will invoke :command:`kustomize build` and write the output to a file named :file:`simple.yaml`. That's the default mapping from target name to output file name, but you can change it with the kustomized_resources_ rule's :ruleattr:`result` attribute. Other Bazel targets can then demand this file as input, forcing Bazel to rebuild the file whenever—and only when—any of the input files change.
 
+The `examples <examples>`__ directory holds two modules exercising the rules. `examples/simple <examples/simple>`__ has a plain :term:`kustomization` and one whose rendered manifests are written back into the source tree with :command:`bazel run`. `examples/helm <examples/helm>`__ patches manifests rendered by `rules_helm <https://github.com/periareon/rules_helm>`__.
+
 Integrating Into Your Project
 =============================
 

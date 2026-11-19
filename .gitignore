@@ -2,10 +2,10 @@
 /bazel-out
 /bazel-rules_kustomize
 /bazel-testlogs
-/examples/bzlmod/bazel-*
+/examples/*/bazel-*
 /MODULE.bazel.lock
-/examples/bzlmod/MODULE.bazel.lock
+/examples/*/MODULE.bazel.lock
 /user.bazelrc
-/examples/bzlmod/user.bazelrc
+/examples/*/user.bazelrc
 
 *~

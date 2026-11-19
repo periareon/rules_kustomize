@@ -1,0 +1,26 @@
+load("@bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@rules_kustomize//kustomize:defs.bzl", "kustomization", "kustomized_resources")
+
+kustomization(
+    name = "def",
+    src = "kustomization.yaml",
+    srcs = ["deployment.yaml"],
+)
+
+kustomized_resources(
+    name = "rendered",
+    kustomization = ":def",
+)
+
+# Keeps the rendered manifests checked in next to their sources, as a
+# GitOps tool would consume them. Refresh them with
+#
+#     bazel run //update
+#
+# and the generated `update_test` fails whenever they are stale.
+write_source_files(
+    name = "update",
+    files = {
+        "manifests.yaml": ":rendered",
+    },
+)
