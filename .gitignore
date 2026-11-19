@@ -3,5 +3,9 @@
 /bazel-rules_kustomize
 /bazel-testlogs
 /examples/bzlmod/bazel-*
+/MODULE.bazel.lock
+/examples/bzlmod/MODULE.bazel.lock
+/user.bazelrc
+/examples/bzlmod/user.bazelrc
 
 *~

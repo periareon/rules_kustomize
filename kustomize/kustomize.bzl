@@ -129,7 +129,7 @@ _kustomized_resources_attrs = {
     "kustomize_build": attr.label(
         executable = True,
         allow_files = True,
-        cfg = "exec",
+        cfg = config.exec("kustomize"),
         mandatory = True,
     ),
     "env_bindings": attr.string_dict(
@@ -162,15 +162,20 @@ _kustomized_resources_attrs = {
 _kustomize_toolchain_type = Label("//tools/kustomize:toolchain_type")
 _helm_toolchain_type = "//tools/helm:toolchain_type"
 
+# Both tools must resolve for the same execution platform, as kustomize
+# invokes helm as a subprocess.
+_EXEC_GROUP = "kustomize"
+
 def _kustomized_resources_impl(ctx):
     kustomization = ctx.attr.kustomization[KustomizationInfo]
-    kustomize_tool = ctx.toolchains[_kustomize_toolchain_type].kustomizeinfo.tool
+    toolchains = ctx.exec_groups[_EXEC_GROUP].toolchains
+    kustomize_tool = toolchains[_kustomize_toolchain_type].kustomizeinfo.tool
     helm_tool = None
     args = ctx.actions.args()
 
     args.add(_runfile_path(ctx, kustomization.target_file))
     if kustomization.requires_helm:
-        helm_toolchain = ctx.toolchains[_helm_toolchain_type]
+        helm_toolchain = toolchains[_helm_toolchain_type]
         if not helm_toolchain:
             fail("No \"helm\" toolchain is available; unable to proceed with invoking \"kustomize\" without it")
         helm_tool = helm_toolchain.helminfo.tool
@@ -226,19 +231,23 @@ def _kustomized_resources_impl(ctx):
         use_default_shell_env = use_default_shell_env,
         mnemonic = mnemonic,
         progress_message = progress_message,
-        toolchain = _kustomize_toolchain_type,
+        exec_group = _EXEC_GROUP,
     )
 
 _kustomized_resources = rule(
     attrs = _kustomized_resources_attrs,
     implementation = _kustomized_resources_impl,
-    toolchains = [
-        _kustomize_toolchain_type,
-        config_common.toolchain_type(
-            _helm_toolchain_type,
-            mandatory = False,
+    exec_groups = {
+        _EXEC_GROUP: exec_group(
+            toolchains = [
+                _kustomize_toolchain_type,
+                config_common.toolchain_type(
+                    _helm_toolchain_type,
+                    mandatory = False,
+                ),
+            ],
         ),
-    ],
+    },
 )
 
 def kustomized_resources(name, **kwargs):
