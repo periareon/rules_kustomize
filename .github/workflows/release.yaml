@@ -7,53 +7,33 @@ on:
 jobs:
   release:
     name: Publish a GitHub release
-    runs-on: ubuntu-latest
-    steps:
-    - name: Check out VCS repository
-      uses: actions/checkout@v7
-    - name: Build and test all Bazel targets
-      uses: ./.github/actions/build-test
-    # Work around lack of the annotated tag for the motivating tag
-    # being present unless we fetch at depth zero (meaning fetch all
-    # history, with no depth restriction).
-    #
-    # Pertinent issues and PRs:
-    #   https://github.com/actions/checkout/issues/338
-    #   https://github.com/actions/checkout/issues/448
-    #   https://github.com/actions/checkout/issues/701
-    #   https://github.com/actions/checkout/pull/579
-    #
-    # Basis of inspiration:
-    #   https://github.com/actions/checkout/issues/701#issuecomment-1139627817
-    #   https://stackoverflow.com/a/54635270
-    - name: Fetch annotated Git tag
-      run: |
-        git fetch origin \
-            --no-tags \
-            +refs/tags/${{ github.ref_name }}:refs/tags/${{ github.ref_name }}
-    - name: Prepare release notes and artifacts
-      id: prepare_release
-      run: |
-        gh_repository='${{ github.repository }}'
-        tag_name='${{ github.ref_name }}'
-        .github/workflows/prepare-release \
-          "${gh_repository#*/}" \
-          "${tag_name}" \
-        > release-notes.txt
-        echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
-    - name: Issue release
-      uses: softprops/action-gh-release@v3
-      with:
-        generate_release_notes: true
-        body_path: release-notes.txt
-        files: vcs-archive-*.tar.gz
-        fail_on_unmatched_files: true
-    outputs:
-      released_tag_name: ${{ steps.prepare_release.outputs.tag_name }}
+    # This reusable workflow builds and tests all Bazel targets at the
+    # tag, runs ".github/workflows/release_prep.sh" to produce the
+    # source archive and release notes, attests the archive's build
+    # provenance and issues the GitHub release with the archive and
+    # its attestation attached. The Bazel Central Registry verifies
+    # that an archive's provenance was produced by this very workflow,
+    # so attesting here with "actions/attest-build-provenance" directly
+    # would yield a valid attestation that the registry still rejects.
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.6.0
+    permissions:
+      contents: write
+      # Needed to attest provenance.
+      id-token: write
+      attestations: write
+    with:
+      prerelease: false
+      release_files: vcs-archive-*.tar.gz
   call-release-to-bcr:
     name: Induce publishing a release to the BCR
     needs: release
     uses: ./.github/workflows/publish-to-bcr.yaml
     with:
-      tag_name: ${{ needs.release.outputs.released_tag_name }}
+      tag_name: ${{ github.ref_name }}
+    # A called workflow can use no more permissions than the calling
+    # job grants it.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     secrets: inherit

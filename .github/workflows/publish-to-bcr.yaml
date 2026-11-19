@@ -21,18 +21,20 @@ jobs:
       # GitHub repository which is a fork of the upstream where the
       # Pull Request will be opened.
       registry_fork: seh/bazel-central-registry
-      # Until we upload release artifacts with the name
-      # "release_files" (and, similarly, "release_notes"), disable
-      # this option, and allow the workflow to download the artifacts
-      # using the release URL.
-      download_default_release_artifacts: false
-      attest: false # TODO(seh): Consider supporting this option.
+      # Attest the generated "source.json" and "MODULE.bazel" entry
+      # files, uploading those attestations to the release, and refer
+      # to the release archive's own provenance attestation from the
+      # registry entry. The release workflow uploads the archive and
+      # that attestation as workflow run artifacts under the names
+      # this workflow looks for ("release_files" and "attestations"),
+      # falling back to the release's assets when dispatched manually.
+      attest: true
     permissions:
       contents: write
       # "write" permission is necessary if "attest" is true.
-      id-token: none
+      id-token: write
       # "write" permission is necessary if "attest" is true.
-      attestations: none
+      attestations: write
     secrets:
       # This token is necessary to push to the BCR fork, and to open a
       # pull request against a registry.
