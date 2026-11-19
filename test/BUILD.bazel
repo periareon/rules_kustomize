@@ -1,20 +1,15 @@
-load(
-    "@bazel_skylib//rules:native_binary.bzl",
-    "native_test",
-)
-load(
-    "kustomize_test.bzl",
-    "kustomize_test",
-)
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:native_binary.bzl", "native_test")
+load("kustomize_diff_test.bzl", "kustomize_diff_test")
 
-kustomize_test(
+kustomize_diff_test(
     name = "simple",
     srcs = [
         "testdata/simple/config-bindings",
     ],
 )
 
-kustomize_test(
+kustomize_diff_test(
     name = "generated_kustomization",
     srcs = [
         "//test/testdata/generated/kustomization:bindings.env",
@@ -23,7 +18,7 @@ kustomize_test(
     kustomization_file = "//test/testdata/generated/kustomization:kustomization.yaml",
 )
 
-kustomize_test(
+kustomize_diff_test(
     name = "generated_resource",
     srcs = [
         "//test/testdata/generated/resource:bindings.env",
@@ -32,10 +27,16 @@ kustomize_test(
     kustomization_file = "//test/testdata/generated/resource:kustomization.yaml",
 )
 
-kustomize_test(
+kustomize_diff_test(
     name = "overlay",
     srcs = [
         "testdata/overlay/pod.yaml",
+    ],
+    # Exercise the relaxed load restrictor; the other tests rely on
+    # kustomize's default of confining loads to the kustomization root.
+    args = [
+        "--load-restrictor",
+        "LoadRestrictionsNone",
     ],
     deps = [
         ":simple",
@@ -43,13 +44,21 @@ kustomize_test(
     ],
 )
 
-kustomize_test(
+kustomize_diff_test(
     name = "helm",
     srcs = [
         "testdata/helm/pdb.yaml",
         "//test/testdata/helm/charts",
     ],
-    requires_helm = True,
+)
+
+# A kustomization target stands for its kustomization file, so other
+# targets can name it in `data` or expand its rlocationpath.
+diff_test(
+    name = "kustomization_output_test",
+    size = "small",
+    file1 = ":simple",
+    file2 = "testdata/simple/kustomization.yaml",
 )
 
 [

@@ -2,5 +2,6 @@ load("//kustomize:kustomize.bzl", "kustomization")
 
 kustomization(
     name = "extra_translations",
+    src = "kustomization.yaml",
     visibility = ["//test:__subpackages__"],
 )

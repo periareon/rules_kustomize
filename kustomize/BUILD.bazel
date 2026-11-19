@@ -1,4 +1,4 @@
-exports_files([
-    "kustomize-build-from-archived-runfiles",
-    "kustomize-build-from-runfiles",
-])
+exports_files(
+    ["kustomize.bzl"],
+    visibility = ["//visibility:public"],
+)

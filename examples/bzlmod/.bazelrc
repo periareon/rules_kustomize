@@ -20,6 +20,10 @@ build --incompatible_autoload_externally=
 # https://github.com/bazelbuild/bazel/issues/12933
 build --incompatible_config_setting_private_default_visibility
 
+# https://github.com/bazelbuild/bazel/discussions/22658
+# Only actions declaring `supports-path-mapping` are affected.
+build --experimental_output_paths=strip
+
 # Actions get no network access. Content kustomize would otherwise fetch
 # while building (remote bases, Helm charts) must be fetched by repository
 # rules ahead of time.
