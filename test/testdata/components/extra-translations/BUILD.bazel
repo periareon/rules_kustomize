@@ -1,4 +1,4 @@
-load("//kustomize:kustomize.bzl", "kustomization")
+load("//kustomize:defs.bzl", "kustomization")
 
 kustomization(
     name = "extra_translations",

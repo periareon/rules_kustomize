@@ -1,16 +1,19 @@
-"""Rules for building kustomizations with kustomize."""
+"""# Bazel rules for kustomize.
+
+Equivalent to `defs.bzl`, retained for existing `load` statements.
+"""
 
 load(
-    "//kustomize/private:kustomization.bzl",
+    ":kustomization.bzl",
     _kustomization = "kustomization",
 )
 load(
-    "//kustomize/private:kustomized_resources.bzl",
-    _kustomized_resources = "kustomized_resources",
+    ":kustomization_info.bzl",
+    _KustomizationInfo = "KustomizationInfo",
 )
 load(
-    "//kustomize/private:providers.bzl",
-    _KustomizationInfo = "KustomizationInfo",
+    ":kustomized_resources.bzl",
+    _kustomized_resources = "kustomized_resources",
 )
 
 visibility("public")

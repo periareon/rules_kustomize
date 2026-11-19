@@ -1,4 +1,56 @@
-exports_files(
-    ["kustomize.bzl"],
-    visibility = ["//visibility:public"],
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "defs.bzl",
+    "extensions.bzl",
+    "kustomization.bzl",
+    "kustomization_info.bzl",
+    "kustomize.bzl",
+    "kustomized_resources.bzl",
+])
+
+bzl_library(
+    name = "defs",
+    srcs = ["defs.bzl"],
+    deps = [
+        ":kustomization",
+        ":kustomization_info",
+        ":kustomized_resources",
+    ],
+)
+
+bzl_library(
+    name = "extensions",
+    srcs = ["extensions.bzl"],
+    deps = ["//kustomize/private:bzl_lib"],
+)
+
+bzl_library(
+    name = "kustomization",
+    srcs = ["kustomization.bzl"],
+    deps = ["//kustomize/private:bzl_lib"],
+)
+
+bzl_library(
+    name = "kustomization_info",
+    srcs = ["kustomization_info.bzl"],
+    deps = ["//kustomize/private:bzl_lib"],
+)
+
+bzl_library(
+    name = "kustomize",
+    srcs = ["kustomize.bzl"],
+    deps = [
+        ":kustomization",
+        ":kustomization_info",
+        ":kustomized_resources",
+    ],
+)
+
+bzl_library(
+    name = "kustomized_resources",
+    srcs = ["kustomized_resources.bzl"],
+    deps = ["//kustomize/private:bzl_lib"],
 )

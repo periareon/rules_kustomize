@@ -89,7 +89,7 @@ By convention, we'll add a couple of Bazel targets to the :file:`BUILD.bazel` fi
 .. code:: bazel
 
    load(
-        "@rules_kustomize//kustomize:kustomize.bzl",
+        "@rules_kustomize//kustomize:defs.bzl",
         "kustomization",
     )
 
@@ -108,7 +108,7 @@ This "base" target we've defined builds nothing. It prepares the recipe for buil
 .. code:: bazel
 
     load(
-        "@rules_kustomize//kustomize:kustomize.bzl",
+        "@rules_kustomize//kustomize:defs.bzl",
         "kustomized_resources",
     )
 

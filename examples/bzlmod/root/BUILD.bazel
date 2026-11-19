@@ -1,5 +1,5 @@
 load(
-    "@rules_kustomize//kustomize:kustomize.bzl",
+    "@rules_kustomize//kustomize:defs.bzl",
     "kustomization",
     "kustomized_resources",
 )

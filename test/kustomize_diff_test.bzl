@@ -5,7 +5,7 @@ load(
     "diff_test",
 )
 load(
-    "//kustomize:kustomize.bzl",
+    "//kustomize:defs.bzl",
     "kustomization",
     "kustomized_resources",
 )
