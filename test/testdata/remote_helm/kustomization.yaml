@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Fetched by rules_helm's `helm_import_repository` in MODULE.bazel and
+# unpacked at the default chartHome, so kustomize doesn't run `helm pull`.
+helmCharts:
+- name: minecraft
+  version: 3.1.4
+  releaseName: test
+  valuesInline:
+    minecraftServer:
+      eula: true

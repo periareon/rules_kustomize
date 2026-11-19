@@ -16,6 +16,8 @@ GOLDEN_FILES = {
     "generated_resource": "//test/testdata/generated/resource:golden.yaml",
     "helm": "testdata/helm/golden.yaml",
     "overlay": "testdata/overlay/golden.yaml",
+    "remote": "testdata/remote/golden.yaml",
+    "remote_helm": "testdata/remote_helm/golden.yaml",
     "simple": "testdata/simple/golden.yaml",
 }
 
@@ -70,6 +72,23 @@ kustomize_diff_test(
         "//test/testdata/helm/charts",
     ],
     golden_file = GOLDEN_FILES["helm"],
+)
+
+# A remote base fetched by `http_archive`, placed below the kustomization
+# root at the `include_prefix` it declares.
+kustomize_diff_test(
+    name = "remote",
+    golden_file = GOLDEN_FILES["remote"],
+    deps = ["@kustomize_hello_world//:helloWorld"],
+)
+
+# A chart fetched by rules_helm's `helm_import_repository` and unpacked at
+# the default `chartHome`, so the `helmCharts` field inflates it without
+# `helm pull`.
+kustomize_diff_test(
+    name = "remote_helm",
+    golden_file = GOLDEN_FILES["remote_helm"],
+    helm_charts = ["@minecraft_chart//:minecraft"],
 )
 
 # Copies the built results over the golden files above:

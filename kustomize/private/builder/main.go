@@ -3,17 +3,19 @@
 // Bazel presents a kustomization's files spread over several roots: the
 // source tree and the output tree(s) for generated files. kustomize
 // expects to find everything within one directory tree, so the builder
-// copies the files into a temporary directory laid out like Bazel's
-// runfiles tree and runs "kustomize build" there. It reads the staged
-// kustomization files to decide which of kustomize's gated features
-// (Helm chart inflation, plugins) the build needs. Copying rather than
+// copies the files into a temporary directory, at the locations the rule
+// worked out for them, and runs "kustomize build" there. It reads the
+// staged kustomization files to decide which of kustomize's gated
+// features (Helm chart inflation, plugins) the build needs. Copying rather than
 // symlinking keeps kustomize's default load restrictor satisfied, as it
 // resolves symbolic links before checking that files sit below the
 // kustomization root.
 package main
 
 import (
+	"archive/tar"
 	"bufio"
+	"compress/gzip"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,7 +23,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -35,12 +36,11 @@ func main() {
 }
 
 type options struct {
-	kustomize     string
-	helm          string
-	manifest      string
-	workspaceName string
-	kustomization string
-	output        string
+	kustomize string
+	helm      string
+	manifest  string
+	root      string
+	output    string
 	// kustomizeArgs are passed through to "kustomize build".
 	kustomizeArgs []string
 }
@@ -50,9 +50,8 @@ func parseArgs(argv []string) (*options, error) {
 	fs := flag.NewFlagSet("builder", flag.ContinueOnError)
 	fs.StringVar(&opts.kustomize, "kustomize", "", "path to the kustomize binary")
 	fs.StringVar(&opts.helm, "helm", "", "path to the helm binary, used when a kustomization inflates Helm charts")
-	fs.StringVar(&opts.manifest, "manifest", "", "file listing the short path and the path of each input file on alternating lines")
-	fs.StringVar(&opts.workspaceName, "workspace_name", "", "name of the main repository")
-	fs.StringVar(&opts.kustomization, "kustomization", "", "short path of the kustomization file to build")
+	fs.StringVar(&opts.manifest, "manifest", "", "file listing an operation (copy or extract), the staged path and the source path of each input file on consecutive lines")
+	fs.StringVar(&opts.root, "root", "", "staged path of the directory holding the kustomization file to build")
 	fs.StringVar(&opts.output, "output", "", "file to write the built resources to")
 	if err := fs.Parse(argv); err != nil {
 		return nil, err
@@ -60,11 +59,10 @@ func parseArgs(argv []string) (*options, error) {
 	opts.kustomizeArgs = fs.Args()
 
 	for name, value := range map[string]string{
-		"kustomize":      opts.kustomize,
-		"manifest":       opts.manifest,
-		"workspace_name": opts.workspaceName,
-		"kustomization":  opts.kustomization,
-		"output":         opts.output,
+		"kustomize": opts.kustomize,
+		"manifest":  opts.manifest,
+		"root":      opts.root,
+		"output":    opts.output,
 	} {
 		if value == "" {
 			return nil, fmt.Errorf("the --%s flag is required", name)
@@ -98,8 +96,18 @@ func run(argv []string) error {
 	}
 
 	for _, entry := range entries {
-		dst := filepath.Join(staging, filepath.FromSlash(stagedPath(opts.workspaceName, entry.shortPath)))
-		if err := copyPath(entry.path, dst); err != nil {
+		dst := filepath.Join(staging, filepath.FromSlash(entry.stagedPath))
+		if !strings.HasPrefix(dst, staging+string(filepath.Separator)) {
+			return fmt.Errorf("refusing to stage %s outside of the staging directory", entry.stagedPath)
+		}
+		var err error
+		switch entry.op {
+		case opCopy:
+			err = copyPath(entry.path, dst)
+		case opExtract:
+			err = extractTarGz(entry.path, dst)
+		}
+		if err != nil {
 			return fmt.Errorf("failed to stage %s: %w", entry.path, err)
 		}
 	}
@@ -108,12 +116,12 @@ func run(argv []string) error {
 	if err != nil {
 		return err
 	}
-	root := filepath.Join(staging, filepath.FromSlash(path.Dir(stagedPath(opts.workspaceName, opts.kustomization))))
 	features, err := detectFeatures(staging)
 	if err != nil {
 		return err
 	}
 
+	root := filepath.Join(staging, filepath.FromSlash(opts.root))
 	args := []string{"build", root}
 	if features.helm {
 		if opts.helm == "" {
@@ -147,16 +155,27 @@ func run(argv []string) error {
 	return output.Close()
 }
 
-// manifestEntry pairs an input file's short path, which determines
-// where it is staged, with the path it can be read from.
+// The operations that stage an input file.
+const (
+	// opCopy copies the file to the staged path.
+	opCopy = "copy"
+	// opExtract unpacks the file, a gzip compressed tar archive, into the
+	// staged path, which names a directory.
+	opExtract = "extract"
+)
+
+// manifestEntry describes how an input file is staged: the operation,
+// the path it is staged at relative to the staging directory, and the
+// path it can be read from.
 type manifestEntry struct {
-	shortPath string
-	path      string
+	op         string
+	stagedPath string
+	path       string
 }
 
 // readManifest parses a file written by Bazel in its "multiline" params
-// file format: the short path and the path of each input file on
-// alternating lines.
+// file format: the operation, the staged path and the source path of
+// each input file on consecutive lines.
 func readManifest(name string) ([]manifestEntry, error) {
 	f, err := os.Open(name)
 	if err != nil {
@@ -171,27 +190,23 @@ func parseManifest(r io.Reader) ([]manifestEntry, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		shortPath := scanner.Text()
-		if !scanner.Scan() {
-			return nil, fmt.Errorf("manifest ends after short path %q without a matching path", shortPath)
+		op := scanner.Text()
+		if op != opCopy && op != opExtract {
+			return nil, fmt.Errorf("unknown staging operation %q in manifest", op)
 		}
-		entries = append(entries, manifestEntry{shortPath: shortPath, path: scanner.Text()})
+		if !scanner.Scan() {
+			return nil, fmt.Errorf("manifest ends after operation %q without a staged path", op)
+		}
+		stagedPath := scanner.Text()
+		if !scanner.Scan() {
+			return nil, fmt.Errorf("manifest ends after staged path %q without a matching source path", stagedPath)
+		}
+		entries = append(entries, manifestEntry{op: op, stagedPath: stagedPath, path: scanner.Text()})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
 	return entries, nil
-}
-
-// stagedPath maps a file's short path to its location in the staging
-// directory, mirroring Bazel's runfiles layout: files in the main
-// repository sit below the workspace name, and files in other
-// repositories below their repository's name.
-func stagedPath(workspaceName, shortPath string) string {
-	if rest, ok := strings.CutPrefix(shortPath, "../"); ok {
-		return rest
-	}
-	return path.Join(workspaceName, shortPath)
 }
 
 // copyPath copies a file, or a directory tree, following symbolic
@@ -230,6 +245,9 @@ func copyFile(src, dst string, mode os.FileMode) (err error) {
 		return err
 	}
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("%s is staged from more than one input", dst)
+	}
 	if err != nil {
 		return err
 	}
@@ -238,6 +256,69 @@ func copyFile(src, dst string, mode os.FileMode) (err error) {
 	}()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// extractTarGz unpacks a gzip compressed tar archive, such as a packaged
+// Helm chart, into the directory dir.
+func extractTarGz(src, dir string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Helm writes a custom gzip header; Go's reader tolerates it where
+	// some other extractors don't.
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	prefix := dir + string(filepath.Separator)
+
+	tr := tar.NewReader(gz)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		dst := filepath.Join(dir, filepath.FromSlash(header.Name))
+		if !strings.HasPrefix(dst, prefix) {
+			return fmt.Errorf("archive entry %q escapes its destination directory", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, os.FileMode(header.Mode).Perm())
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("%s is staged from more than one input", dst)
+			}
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(out, tr)
+			if err := errors.Join(err, out.Close()); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("archive entry %q has unsupported type %q", header.Name, header.Typeflag)
+		}
+	}
 }
 
 // features records which of kustomize's gated features a build needs.

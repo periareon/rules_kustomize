@@ -1,6 +1,8 @@
 """The `kustomized_resources` rule."""
 
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
+load("@bazel_skylib//lib:paths.bzl", "paths")
+load(":layout.bzl", "staged_path")
 load(":providers.bzl", "KustomizationInfo")
 
 visibility("//kustomize/...")
@@ -12,11 +14,11 @@ _HELM_TOOLCHAIN_TYPE = Label("@rules_helm//helm:toolchain_type")
 # invokes helm as a subprocess.
 _EXEC_GROUP = "kustomize"
 
-def _manifest_entry(file):
-    # The builder derives the staged location from the short path, so
-    # that files from the source tree and from the output tree end up
-    # side by side, as kustomize expects to find them.
-    return [file.short_path, file.path]
+def _manifest_entry(entry):
+    # How to stage the file, where to stage it, then where to read it
+    # from. Staging puts files from the source tree and from the output
+    # tree side by side, as kustomize expects to find them.
+    return ["extract" if entry.extract else "copy", entry.path, entry.file.path]
 
 def _kustomized_resources_impl(ctx):
     info = ctx.attr.kustomization[KustomizationInfo]
@@ -28,14 +30,13 @@ def _kustomized_resources_impl(ctx):
     # The list of files to stage goes in a params file of its own, so
     # that it never runs into command line length limits.
     manifest = ctx.actions.args()
-    manifest.add_all(info.transitive_resources, map_each = _manifest_entry)
+    manifest.add_all(info.transitive_layout, map_each = _manifest_entry)
     manifest.set_param_file_format("multiline")
     manifest.use_param_file("--manifest=%s", use_always = True)
 
     args = ctx.actions.args()
     args.add("--kustomize", kustomize)
-    args.add("--workspace_name", ctx.workspace_name)
-    args.add("--kustomization", info.target_file.short_path)
+    args.add("--root", paths.dirname(staged_path(info.target_file, ctx.workspace_name)))
     args.add("--output", result)
 
     # Whether the kustomization inflates Helm charts is only known once
@@ -77,8 +78,8 @@ The kustomization's files are staged into a private directory tree
 before building, so that files from the source tree and generated files
 sit together as kustomize expects. The builder reads the staged
 kustomization files and enables the Helm chart inflator when one uses
-`helmCharts` or `helmGlobals`, and plugins (including exec functions)
-when one uses `generators`, `transformers` or `validators`.""",
+`helmCharts` or `helmGlobals`, and plugins (including exec and Starlark
+functions) when one uses `generators`, `transformers` or `validators`.""",
     implementation = _kustomized_resources_impl,
     attrs = {
         "args": attr.string_list(

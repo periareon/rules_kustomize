@@ -1,9 +1,9 @@
-load("@rules_helm//helm:defs.bzl", "helm_chart", "helm_template")
+load("@rules_helm//helm:defs.bzl", "helm_chart")
 load("@rules_kustomize//kustomize:defs.bzl", "kustomization", "kustomized_resources")
 
-# rules_helm packages the chart and renders it. The rendered manifests
-# are a generated file, which the kustomization consumes alongside its
-# source files.
+# rules_helm packages the chart; kustomize's own `helmCharts` field
+# inflates it, with the packaged archive unpacked below `charts/` in
+# place of a download.
 helm_chart(
     name = "chart",
     chart = "chart/Chart.yaml",
@@ -11,19 +11,10 @@ helm_chart(
     values = "chart/values.yaml",
 )
 
-helm_template(
-    name = "rendered",
-    chart = ":chart",
-    opts = [
-        "--name-template",
-        "greeter",
-    ],
-)
-
 kustomization(
     name = "def",
     src = "kustomization.yaml",
-    srcs = [":rendered"],
+    helm_charts = [":chart"],
 )
 
 kustomized_resources(

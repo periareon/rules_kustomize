@@ -34,3 +34,44 @@ use_repo(
     kustomize_dev,
     "kustomize_pinned",
 )
+
+# Remote content for the tests, fetched while repositories are resolved
+# rather than by kustomize at build time.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "kustomize_hello_world",
+    build_file_content = """\
+load("@rules_kustomize//kustomize:defs.bzl", "kustomization")
+
+# Placed at `bases/helloWorld` below every kustomization depending on it.
+kustomization(
+    name = "helloWorld",
+    src = "kustomization.yaml",
+    include_prefix = "bases/helloWorld",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "BUILD.bazel",
+            "kustomization.yaml",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+""",
+    dev_dependency = True,
+    sha256 = "4ea5a974c46ad6efcde4fd9c339ab1bd278a80b6872dda2d1a366936e4638475",
+    strip_prefix = "kustomize-kustomize-v5.8.1/examples/helloWorld",
+    urls = ["https://github.com/kubernetes-sigs/kustomize/archive/refs/tags/kustomize/v5.8.1.tar.gz"],
+)
+
+helm_import_repository = use_repo_rule("@rules_helm//helm:defs.bzl", "helm_import_repository")
+
+helm_import_repository(
+    name = "minecraft_chart",
+    chart_name = "minecraft",
+    dev_dependency = True,
+    repository = "https://itzg.github.io/minecraft-server-charts",
+    sha256 = "4cd47bbc4f9a41ea3915b996ea85cec49efe6671a1cf5a7bef8ee159d6a76c09",
+    version = "3.1.4",
+)

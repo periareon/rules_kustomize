@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Fetched by `http_archive` in MODULE.bazel; its `kustomization` target
+# declares `bases/helloWorld` as its place below ours, so nothing is
+# cloned by kustomize.
+resources:
+- bases/helloWorld
+
+namePrefix: remote-

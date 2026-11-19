@@ -167,8 +167,7 @@ Tool Versions
 See each of those projects' documentation for the set of versions they know how to download.
 
 Running the Tool Yourself
-=========================
-
+==================
 If you'd like to run the same :tool:`kustomize` tool that these rules use, you can have Bazel run it for you, without installing the tool separately. The :field:`host_tools` tag described in `Integrating Into Your Project`_ creates the :value:`@kustomize` repository for that purpose.
 
 .. code:: shell
@@ -178,6 +177,83 @@ If you'd like to run the same :tool:`kustomize` tool that these rules use, you c
 Bazel downloads the tool the first time that you ask for it. You get the same version that your builds use: the one held by the hub the tag names, or the default version otherwise.
 
 That label always names the binary for the machine running Bazel, so don't lean on it in build actions. A :rule:`genrule` target can instead list :value:`@rules_kustomize//kustomize:current_toolchain` in its :ruleattr:`toolchains` attribute and refer to the :value:`$(KUSTOMIZE)` make variable. Bazel then supplies the tool built for whichever machine will run that action, which may not be the computer in front of you when you use remote execution.
+=======
+Remote Content
+==============
+
+:tool:`kustomize` can fetch content for itself while building: it clones repositories named as remote resources_ and runs :command:`helm pull` for charts it doesn't find below :field:`chartHome`. Bazel actions have no network access, so that content has to be fetched while Bazel resolves repositories instead, with a verified checksum, and then placed where the :term:`kustomization` expects it. The kustomization_ rule has an attribute for each case; the fetching itself is left to repository rules that already exist.
+
+.. _remote bases:
+
+For a remote base, fetch its source archive with :type:`http_archive` (or :type:`git_repository`) from :file:`@bazel_tools` and declare it as a kustomization_ in the repository's BUILD file, with an :ruleattr:`include_prefix` naming the directory below a depending :term:`kustomization`'s root at which it is placed. Each consumer then lists it in :ruleattr:`deps` and refers to that directory in place of the URL, the way a :type:`cc_library`'s :ruleattr:`include_prefix` fixes the path by which its headers are included. Here the :file:`examples/helloWorld` directory of the :tool:`kustomize` repository serves as a base:
+
+.. code:: bazel
+
+    http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+    http_archive(
+        name = "hello_world",
+        build_file_content = """
+    load("@rules_kustomize//kustomize:defs.bzl", "kustomization")
+
+    kustomization(
+        name = "helloWorld",
+        src = "kustomization.yaml",
+        include_prefix = "bases/helloWorld",
+        srcs = glob(["**"], exclude = ["BUILD.bazel", "kustomization.yaml"]),
+        visibility = ["//visibility:public"],
+    )
+    """,
+        sha256 = "4ea5a974c46ad6efcde4fd9c339ab1bd278a80b6872dda2d1a366936e4638475",
+        strip_prefix = "kustomize-kustomize-v5.8.1/examples/helloWorld",
+        urls = ["https://github.com/kubernetes-sigs/kustomize/archive/refs/tags/kustomize/v5.8.1.tar.gz"],
+    )
+
+.. code:: bazel
+
+    kustomization(
+        name = "overlay",
+        src = "kustomization.yaml",
+        deps = ["@hello_world//:helloWorld"],
+    )
+
+.. code:: yaml
+
+    resources:
+    - bases/helloWorld
+
+.. _remote charts:
+
+For a Helm chart, fetch the packaged chart with :type:`helm_import_repository` from `rules_helm <https://github.com/periareon/rules_helm>`__, which locates it in a chart repository's :file:`index.yaml`, at a direct URL, or in an OCI registry. Its :type:`helm_import` target provides the chart archive, which the :ruleattr:`helm_charts` attribute unpacks below the :term:`kustomization`'s :ruleattr:`chart_home` before building, so the :field:`helmCharts` field finds the chart under its name and skips the download:
+
+.. code:: bazel
+
+    helm_import_repository = use_repo_rule("@rules_helm//helm:defs.bzl", "helm_import_repository")
+
+    helm_import_repository(
+        name = "minecraft_chart",
+        chart_name = "minecraft",
+        repository = "https://itzg.github.io/minecraft-server-charts",
+        sha256 = "4cd47bbc4f9a41ea3915b996ea85cec49efe6671a1cf5a7bef8ee159d6a76c09",
+        version = "3.1.4",
+    )
+
+.. code:: bazel
+
+    kustomization(
+        name = "server",
+        src = "kustomization.yaml",
+        helm_charts = ["@minecraft_chart//:minecraft"],
+    )
+
+.. code:: yaml
+
+    helmCharts:
+    - name: minecraft
+      version: 3.1.4
+      releaseName: test
+
+A chart packaged by :file:`rules_helm`'s :type:`helm_chart` rule in the same workspace works the same way; see `examples/helm <examples/helm>`__.
 
 Rules
 =====
@@ -203,6 +279,11 @@ Attributes
 | package (assuming that the target is in the same package as the :term:`kustomization` file), a simple name    |
 | like "base" is fitting.                                                                                       |
 +-----------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`chart_home`                  | :type:`string`              | :value:`charts`                       |
++-----------------------------------------+-----------------------------+---------------------------------------+
+| The directory below the :term:`kustomization` root into which the :ruleattr:`helm_charts` are unpacked. Must  |
+| agree with the :field:`helmGlobals.chartHome` field, whose default this matches.                              |
++-----------------------------------------+-----------------------------+---------------------------------------+
 | :ruleattr:`deps`                        | :type:`label_list`          | :value:`[]`                           |
 +-----------------------------------------+-----------------------------+---------------------------------------+
 | The set of `kustomizations <kustomization_>`_ referenced as resources_ by this :term:`kustomization`.         |
@@ -211,6 +292,21 @@ Attributes
 +-----------------------------------------+-----------------------------+---------------------------------------+
 | :file:`kustomization.yaml`, :file:`kustomization.yml`, or :file:`kustomization` file for this                 |
 | :term:`kustomization`.                                                                                        |
++-----------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`helm_charts`                 | :type:`label_list`          | :value:`[]`                           |
++-----------------------------------------+-----------------------------+---------------------------------------+
+| Packaged Helm charts (:file:`.tgz` archives) for the :field:`helmCharts` field to inflate. Each archive is     |
+| unpacked below :ruleattr:`chart_home` before building, where :tool:`kustomize` finds the chart by name and     |
+| doesn't attempt to download it. Archives may come from `rules_helm <https://github.com/periareon/rules_helm>`__,|
+| whether a chart it packages or one its :type:`helm_import_repository` fetches (see `remote charts`_).          |
++-----------------------------------------+-----------------------------+---------------------------------------+
+| :ruleattr:`include_prefix`              | :type:`string`              | :value:`""`                           |
++-----------------------------------------+-----------------------------+---------------------------------------+
+| The directory below a depending :term:`kustomization`'s root at which this :term:`kustomization` is placed.   |
+| A :term:`kustomization` in another repository can't be reached by a relative path from the ones that use it,  |
+| so it declares one: with :value:`bases/helloWorld`, every :term:`kustomization` listing it in :ruleattr:`deps` |
+| finds it at :file:`bases/helloWorld`, its own bases alongside (see `remote bases`_). Left empty, the           |
+| :term:`kustomization` keeps its own location, which is what bases within the same repository want.            |
 +-----------------------------------------+-----------------------------+---------------------------------------+
 | :ruleattr:`srcs`                        | :type:`label_list`          | :value:`[]`                           |
 +-----------------------------------------+-----------------------------+---------------------------------------+
@@ -256,10 +352,6 @@ Attributes
 | :ruleattr:`name`                      | :type:`string`              | |mandatory|                           |
 +---------------------------------------+-----------------------------+---------------------------------------+
 | A unique name for the :term:`variant`.                                                                      |
-+---------------------------------------+-----------------------------+---------------------------------------+
-| :ruleattr:`args`                      | :type:`string_list`         | :value:`[]`                           |
-+---------------------------------------+-----------------------------+---------------------------------------+
-| Additional arguments for this :command:`kustomize build`, placed after every other argument.                |
 +---------------------------------------+-----------------------------+---------------------------------------+
 | :ruleattr:`env`                       | :type:`string_dict`         | :value:`{}`                           |
 +---------------------------------------+-----------------------------+---------------------------------------+
@@ -308,9 +400,20 @@ Fields
 +---------------------------------------+----------------------------------------------------------+
 | **Name**                              | **Type**                                                 |
 +---------------------------------------+----------------------------------------------------------+
+| :pfield:`include_prefix`              | :type:`string`                                           |
++---------------------------------------+----------------------------------------------------------+
+| The directory below a depending :term:`kustomization`'s root at which this one is placed, or     |
+| empty to keep its own location.                                                                  |
++---------------------------------------+----------------------------------------------------------+
 | :pfield:`target_file`                 | :type:`string`                                           |
 +---------------------------------------+----------------------------------------------------------+
 | The top-level :term:`kustomization` file defining this :term:`kustomization`.                    |
++---------------------------------------+----------------------------------------------------------+
+| :pfield:`transitive_layout`           | :type:`depset of struct`                                 |
++---------------------------------------+----------------------------------------------------------+
+| Where each referenced file sits when the :term:`kustomization` is built, as                      |
+| :value:`struct(file, path, extract)` entries: the :type:`File`, its path relative to the staging |
+| root, and whether it is an archive to unpack there rather than a file to copy.                   |
 +---------------------------------------+----------------------------------------------------------+
 | :pfield:`transitive_resources`        | :type:`depset of File`                                   |
 +---------------------------------------+----------------------------------------------------------+
@@ -337,16 +440,8 @@ Downloading Helm Charts
 
 The :tool:`kustomize` tool can expand Helm charts using the :krmkind:`Kustomization` manifest's :field:`helmCharts` `field <https://github.com/kubernetes-sigs/kustomize/blob/master/examples/chart.md>`__. If the Helm chart's source files are not available already locally, :tool:`kustomize` can fetch the chart archive and unpack within the directory specified in the :field:`helmGlobals.chartHome` `field <https://github.com/kubernetes-sigs/kustomize/blob/master/examples/chart.md#build-the-base-and-the-variants>`__. By default, this :field:`chartHome` field's value is :value:`charts`, meaning that :tool:`kustomize` will download and expand chart archives in the :file:`charts/<chart name>` directory within the :term:`kustomization` root.
 
-Now, first, let's acknowledge that the :tool:`kustomize` maintainers do **not** recommend `downloading Helm charts automatically <https://github.com/kubernetes-sigs/kustomize/blob/master/examples/chart.md#but-its-not-really-about-performance>`__, nor `even relying on Helm for repeated expansion at all <https://github.com/kubernetes-sigs/kustomize/blob/master/examples/chart.md#best-practice>`__. The capability is there in :tool:`kustomize` today, though, so let's clarify how Bazel might interfere.
+Now, first, let's acknowledge that the :tool:`kustomize` maintainers do **not** recommend `downloading Helm charts automatically <https://github.com/kubernetes-sigs/kustomize/blob/master/examples/chart.md#but-its-not-really-about-performance>`__, nor `even relying on Helm for repeated expansion at all <https://github.com/kubernetes-sigs/kustomize/blob/master/examples/chart.md#best-practice>`__. Within Bazel, the download can't happen at all: a sandboxed action has no network access, and :tool:`kustomize` would need to write the chart into the :term:`kustomization` root.
 
-What could go wrong? Consider:
+Instead, fetch the chart ahead of time. Either commit the unpacked chart below :file:`charts/<chart name>` and list its files in the kustomization_ rule's :ruleattr:`srcs`, or let :file:`rules_helm`'s :type:`helm_import_repository` fetch the archive with a verified checksum and list it in :ruleattr:`helm_charts` (see `remote charts`_). Both place the chart where :tool:`kustomize` looks for it, so the :field:`helmCharts` entry's :field:`repo` field is left unused.
 
-* If Bazel sandboxing_ is enabled, :tool:`kustomize` has no network access with which to download the chart archive.
-
-  You can disable sandboxing for the kustomized_resources_ target by adding :value:`no-sandbox` or :value:`requires-network` to its :ruleattr:`tags` attribute, or by omitting :value:`sandboxed` from the values supplied via Bazel's :cmdflag:`--spawn_strategy` `flag <https://docs.bazel.build/versions/master/command-line-reference.html#flag--spawn_strategy>`__.
-
-* If your :term:`kustomization` directs :tool:`kustomize` to store Helm chart files outside of the :term:`kustomization` root, or even just refers to such distant files, the default load restrictor will block :tool:`kustomize` from reading them.
-
-  You must relax the default load restrictor by passing :cmdflag:`--load-restrictor LoadRestrictionsNone` through the kustomized_resources_ rule's :ruleattr:`args` attribute.
-
-Given that your chosen use of Bazel likely implies a preference for hermetic and repeatable builds, it's best to at least acquire and unpack the Helm chart archives beforehand, committing the resulting files for future use. Expanding the Helm chart as manifests outside of :tool:`kustomize` is even better, though it's then harder to include artifacts generated by other Bazel rules. Finding the right balance will take some experimentation.
+Also note that :tool:`kustomize` doesn't apply the :krmkind:`Kustomization` manifest's top-level :field:`namespace` field to the resources_ a :field:`helmCharts` entry produces. Set the entry's own :field:`namespace` field for charts that template :value:`.Release.Namespace`, or apply the namespace from an overlay that uses the chart's :term:`kustomization` as a base.
